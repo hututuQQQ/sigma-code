@@ -126,6 +126,7 @@ interface BuildCliInput {
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<number>;
   readonly wslPrebuild: Option.Option<string>;
+  readonly sigmaRuntime: Option.Option<string>;
 }
 
 function detectHostBuildPlatform(hostPlatform: string): typeof BuildPlatform.Type | undefined {
@@ -339,6 +340,27 @@ export class MissingDesktopBuildInputError extends Schema.TaggedErrorClass<Missi
 ) {
   override get message(): string {
     return `Missing ${desktopBuildInputArtifactNames[this.artifact]} at ${this.artifactPath}. Run '${this.buildCommand}' first.`;
+  }
+}
+
+export class MissingBundledSigmaRuntimeConfigurationError extends Schema.TaggedErrorClass<MissingBundledSigmaRuntimeConfigurationError>()(
+  "MissingBundledSigmaRuntimeConfigurationError",
+  {},
+) {
+  override get message(): string {
+    return "A desktop artifact must include Sigma Runtime. Pass --sigma-runtime or set SIGMACODE_DESKTOP_SIGMA_RUNTIME to a verified agent CLI bundle.";
+  }
+}
+
+export class InvalidBundledSigmaRuntimeError extends Schema.TaggedErrorClass<InvalidBundledSigmaRuntimeError>()(
+  "InvalidBundledSigmaRuntimeError",
+  {
+    runtimePath: Schema.String,
+    missingFiles: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `Sigma Runtime bundle at ${this.runtimePath} is missing required files: ${this.missingFiles.join(", ")}.`;
   }
 }
 
@@ -560,6 +582,7 @@ interface ResolvedBuildOptions {
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: number | undefined;
   readonly wslPrebuild: string | undefined;
+  readonly sigmaRuntime: string | undefined;
 }
 
 interface StagePackageJson {
@@ -977,6 +1000,10 @@ const BuildEnvConfig = Config.all({
   // into the staged node-pty so the WSL backend ships a ready binary and never
   // compiles on the user's machine.
   wslPrebuild: Config.string("SIGMACODE_DESKTOP_WSL_PREBUILD").pipe(Config.option),
+  // Verified portable Sigma Runtime bundle produced by the Sigma repository.
+  // It is copied as an opaque desktop resource rather than merged into this
+  // workspace's dependency graph.
+  sigmaRuntime: Config.string("SIGMACODE_DESKTOP_SIGMA_RUNTIME").pipe(Config.option),
 });
 
 const MockUpdateServerPortSchema = Schema.NumberFromString.check(
@@ -1062,6 +1089,11 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 
   const wslPrebuild =
     Option.getOrUndefined(input.wslPrebuild) ?? Option.getOrUndefined(env.wslPrebuild);
+  const configuredSigmaRuntime =
+    Option.getOrUndefined(input.sigmaRuntime) ?? Option.getOrUndefined(env.sigmaRuntime);
+  const sigmaRuntime = configuredSigmaRuntime
+    ? path.resolve(repoRoot, configuredSigmaRuntime)
+    : undefined;
 
   return {
     platform,
@@ -1076,6 +1108,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     mockUpdates,
     mockUpdateServerPort,
     wslPrebuild,
+    sigmaRuntime,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -1411,7 +1444,10 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     // files through the asar (transparently redirected to the unpacked copy), so
     // there's no duplication.
     asarUnpack: [...DESKTOP_ASAR_UNPACK, "apps/server/dist/**", "**/node_modules/**"],
-    extraResources: [{ from: "legal", to: "legal" }],
+    extraResources: [
+      { from: "legal", to: "legal" },
+      { from: "sigma-runtime", to: "sigma-runtime" },
+    ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
   const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
@@ -1569,6 +1605,46 @@ const stageWslNodePtyPrebuild = Effect.fn("stageWslNodePtyPrebuild")(function* (
   );
 });
 
+const bundledSigmaRuntimeRequiredFiles = (
+  platform: typeof BuildPlatform.Type,
+): ReadonlyArray<string> => [
+  platform === "win" ? "bin/sigma.cmd" : "bin/sigma",
+  "LICENSE",
+  "integrity-manifest.json",
+  "package-metadata.json",
+  "sbom.cdx.json",
+];
+
+export const stageBundledSigmaRuntime = Effect.fn("stageBundledSigmaRuntime")(function* (input: {
+  readonly stageAppDir: string;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly runtimePath: string;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const requiredFiles = bundledSigmaRuntimeRequiredFiles(input.platform);
+  const missingFiles: string[] = [];
+
+  for (const relativePath of requiredFiles) {
+    const exists = yield* fs
+      .exists(path.join(input.runtimePath, relativePath))
+      .pipe(Effect.orElseSucceed(() => false));
+    if (!exists) {
+      missingFiles.push(relativePath);
+    }
+  }
+
+  if (missingFiles.length > 0) {
+    return yield* new InvalidBundledSigmaRuntimeError({
+      runtimePath: input.runtimePath,
+      missingFiles,
+    });
+  }
+
+  yield* fs.copy(input.runtimePath, path.join(input.stageAppDir, "sigma-runtime"));
+  yield* Effect.log(`[desktop-artifact] Staged bundled Sigma Runtime from ${input.runtimePath}.`);
+});
+
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   options: ResolvedBuildOptions,
 ) {
@@ -1587,6 +1663,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     return yield* new UnsupportedDesktopBuildPlatformError({
       platform: options.platform,
     });
+  }
+  if (options.sigmaRuntime === undefined) {
+    return yield* new MissingBundledSigmaRuntimeConfigurationError({});
   }
 
   const electronVersion = desktopPackageJson.dependencies.electron;
@@ -1698,6 +1777,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       path.join(legalDir, legalResource.targetFileName),
     );
   }
+  yield* stageBundledSigmaRuntime({
+    stageAppDir,
+    platform: options.platform,
+    runtimePath: options.sigmaRuntime,
+  });
 
   yield* assertPlatformBuildResources(
     options.platform,
@@ -1996,6 +2080,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   wslPrebuild: Flag.string("wsl-prebuild").pipe(
     Flag.withDescription(
       "Path to a prebuilt Linux node-pty (pty.node) for the target arch, staged for the WSL backend (env: SIGMACODE_DESKTOP_WSL_PREBUILD).",
+    ),
+    Flag.optional,
+  ),
+  sigmaRuntime: Flag.string("sigma-runtime").pipe(
+    Flag.withDescription(
+      "Path to a verified portable Sigma Runtime bundle (env: SIGMACODE_DESKTOP_SIGMA_RUNTIME).",
     ),
     Flag.optional,
   ),

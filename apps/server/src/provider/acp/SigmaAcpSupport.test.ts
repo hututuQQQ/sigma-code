@@ -6,6 +6,7 @@ import {
   applySigmaAcpModelSelection,
   buildSigmaAcpSpawnInput,
   currentSigmaModelIdFromSessionSetup,
+  resolveSigmaBinaryPath,
   resolveSigmaAcpModelId,
   sigmaModelsFromSessionSetup,
 } from "./SigmaAcpSupport.ts";
@@ -65,6 +66,23 @@ describe("SigmaAcpSupport", () => {
       cwd: "/tmp/repo",
       env: { PATH: "/opt/bin" },
     });
+  });
+
+  it("prefers an explicit path, then the bundled runtime, then PATH discovery", () => {
+    const environment = {
+      SIGMACODE_BUNDLED_SIGMA_PATH: "/opt/sigma-code/runtime/bin/sigma",
+    };
+
+    expect(resolveSigmaBinaryPath({ binaryPath: "/custom/sigma" }, environment)).toBe(
+      "/custom/sigma",
+    );
+    expect(resolveSigmaBinaryPath({ binaryPath: "sigma" }, environment)).toBe(
+      "/opt/sigma-code/runtime/bin/sigma",
+    );
+    expect(resolveSigmaBinaryPath(undefined, environment)).toBe(
+      "/opt/sigma-code/runtime/bin/sigma",
+    );
+    expect(resolveSigmaBinaryPath({ binaryPath: "sigma" }, {})).toBe("sigma");
   });
 
   it("normalizes defaults and discovers flat or grouped ACP model options", () => {

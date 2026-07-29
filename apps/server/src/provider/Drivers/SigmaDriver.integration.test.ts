@@ -24,6 +24,7 @@ import * as Stream from "effect/Stream";
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { BUNDLED_SIGMA_BINARY_ENV } from "../acp/SigmaAcpSupport.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { SigmaDriver } from "./SigmaDriver.ts";
 
@@ -294,6 +295,49 @@ describe("SigmaDriver integration", () => {
           yield* instance.adapter.stopSession(threadId);
           yield* Fiber.interrupt(eventsFiber);
         }),
+    );
+
+    it.effect("uses the bundled Runtime when the provider has its default binary setting", () =>
+      Effect.gen(function* () {
+        const requestLogDir = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "sigma-driver-bundled-request-log-")),
+        );
+        const requestLogPath = NodePath.join(requestLogDir, "requests.ndjson");
+        const platform = yield* HostProcessPlatform;
+        const mock = yield* Effect.promise(() => makeMockSigmaBinary(requestLogPath, platform));
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(() =>
+            Promise.all([
+              NodeFSP.rm(mock.directory, { recursive: true, force: true }),
+              NodeFSP.rm(requestLogDir, { recursive: true, force: true }),
+            ]).then(() => undefined),
+          ),
+        );
+
+        const instance = yield* SigmaDriver.create({
+          instanceId: ProviderInstanceId.make("sigma-bundled"),
+          displayName: "Sigma",
+          accentColor: "#3157c8",
+          environment: [
+            {
+              name: BUNDLED_SIGMA_BINARY_ENV,
+              value: mock.binaryPath,
+              sensitive: false,
+            },
+          ],
+          enabled: true,
+          config: decodeSigmaSettings({}),
+        });
+        const providerSnapshot = yield* instance.snapshot.refresh;
+
+        assert.strictEqual(providerSnapshot.status, "ready");
+        assert.strictEqual(providerSnapshot.installed, true);
+        assert.strictEqual(providerSnapshot.version, "0.1.0");
+        assert.include(
+          yield* Effect.promise(() => NodeFSP.readFile(requestLogPath, "utf8")),
+          '"method":"_sigma/health"',
+        );
+      }),
     );
   });
 });

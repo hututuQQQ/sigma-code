@@ -21,7 +21,8 @@ SIGMACODE_DEV_INSTANCE=feature-xyz vp run dev:desktop
 vp run build
 
 # Unsigned Windows desktop installer
-vp run dist:desktop:win:x64
+SIGMACODE_DESKTOP_SIGMA_RUNTIME=/path/to/sigma/.artifacts/agent-cli-win32-x64 \
+  vp run dist:desktop:win:x64
 ```
 
 Development state in a linked worktree is stored under its gitignored
@@ -36,3 +37,5 @@ node apps/server/dist/bin.mjs serve
 ```
 
 The public executable name in packaged distributions is `sigma-code`.
+Desktop artifact builds require the verified portable Runtime directory
+produced by `pnpm verify:package:agent-cli:windows` in the Sigma repository.

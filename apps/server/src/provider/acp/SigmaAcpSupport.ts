@@ -13,6 +13,9 @@ import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 const SIGMA_DRIVER_KIND = ProviderDriverKind.make("sigma");
 const DEFAULT_SIGMA_MODEL = "deepseek/deepseek-v4-pro";
 const SIGMA_MODEL_CONFIG_ID = "sigma.model";
+const DEFAULT_SIGMA_BINARY = "sigma";
+
+export const BUNDLED_SIGMA_BINARY_ENV = "SIGMACODE_BUNDLED_SIGMA_PATH";
 
 type SigmaAcpRuntimeSettings = Pick<SigmaSettings, "binaryPath">;
 
@@ -29,13 +32,26 @@ export interface SigmaAcpRuntimeInput extends Omit<
   readonly environment?: NodeJS.ProcessEnv;
 }
 
+export function resolveSigmaBinaryPath(
+  settings: SigmaAcpRuntimeSettings | null | undefined,
+  environment?: NodeJS.ProcessEnv,
+): string {
+  const configured = settings?.binaryPath?.trim();
+  if (configured && configured !== DEFAULT_SIGMA_BINARY) {
+    return configured;
+  }
+
+  const bundled = environment?.[BUNDLED_SIGMA_BINARY_ENV]?.trim();
+  return bundled || configured || DEFAULT_SIGMA_BINARY;
+}
+
 export function buildSigmaAcpSpawnInput(
   settings: SigmaAcpRuntimeSettings | null | undefined,
   cwd: string,
   environment?: NodeJS.ProcessEnv,
 ): AcpSessionRuntime.AcpSpawnInput {
   return {
-    command: settings?.binaryPath || "sigma",
+    command: resolveSigmaBinaryPath(settings, environment),
     args: ["acp"],
     cwd,
     ...(environment === undefined ? {} : { env: environment }),

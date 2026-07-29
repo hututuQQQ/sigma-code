@@ -101,12 +101,24 @@ const withHarness = <A, E, R>(
     | FileSystem.FileSystem
     | DesktopBackendConfiguration.DesktopBackendConfiguration
   >,
+  options?: {
+    readonly bundledSigmaRuntime?: boolean;
+  },
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
     const baseDir = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "t3-desktop-backend-config-test-",
     });
+    const resourcesPath = options?.bundledSigmaRuntime
+      ? path.join(baseDir, "resources")
+      : "/missing/resources";
+    if (options?.bundledSigmaRuntime) {
+      const launcherPath = path.join(resourcesPath, "sigma-runtime", "bin", "sigma.cmd");
+      yield* fileSystem.makeDirectory(path.dirname(launcherPath), { recursive: true });
+      yield* fileSystem.writeFileString(launcherPath, "@echo off\r\n");
+    }
 
     return yield* effect.pipe(
       Effect.provide(
@@ -114,7 +126,13 @@ const withHarness = <A, E, R>(
           Layer.provideMerge(serverExposureLayer),
           Layer.provideMerge(DesktopAppSettings.layerTest()),
           Layer.provideMerge(DesktopWslEnvironment.layerTest()),
-          Layer.provideMerge(makeEnvironmentLayer(baseDir)),
+          Layer.provideMerge(
+            makeEnvironmentLayer(baseDir, {
+              appPath: baseDir,
+              resourcesPath,
+              ...(options?.bundledSigmaRuntime ? { platform: "win32" as const } : {}),
+            }),
+          ),
         ),
       ),
     );
@@ -138,6 +156,7 @@ describe("DesktopBackendConfiguration", () => {
         assert.isUndefined(first.env.SIGMACODE_PORT);
         assert.isUndefined(first.env.SIGMACODE_MODE);
         assert.isUndefined(first.env.SIGMACODE_DESKTOP_LAN_HOST);
+        assert.isUndefined(first.env.SIGMACODE_BUNDLED_SIGMA_PATH);
 
         assert.equal(first.bootstrap.mode, "desktop");
         assert.equal(first.bootstrap.noBrowser, true);
@@ -149,6 +168,22 @@ describe("DesktopBackendConfiguration", () => {
         assert.match(first.bootstrap.desktopBootstrapToken, /^[0-9a-f]{48}$/i);
         assert.equal(second.bootstrap.desktopBootstrapToken, first.bootstrap.desktopBootstrapToken);
       }),
+    ),
+  );
+
+  it.effect("injects the packaged Sigma Runtime launcher into the primary backend", () =>
+    withHarness(
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+        const primary = yield* configuration.resolvePrimary;
+
+        assert.equal(
+          primary.env.SIGMACODE_BUNDLED_SIGMA_PATH,
+          environment.path.join(environment.resourcesPath, "sigma-runtime", "bin", "sigma.cmd"),
+        );
+      }),
+      { bundledSigmaRuntime: true },
     ),
   );
 
