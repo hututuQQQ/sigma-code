@@ -12,7 +12,9 @@ const CONNECT_CALLBACK_PATH = "/connect/callback";
  * decide whether it is the hosted deployment — the two must agree, so the
  * default lives here.
  */
-export const DEFAULT_HOSTED_APP_URL = "https://app.t3.codes";
+// Empty until Sigma operates its own hosted pairing service. Callers must gate
+// hosted flows on an explicitly configured URL.
+export const DEFAULT_HOSTED_APP_URL = "";
 
 /**
  * Requested at authorize time by the hosted page and honored by the CLI's
@@ -104,7 +106,7 @@ export function checkConnectAuthCode(
 ): ConnectAuthCode | string {
   const parsed = parseConnectAuthCode(blob);
   if (parsed === null) {
-    return "That does not look like a T3 Connect code. Copy the full code.";
+    return "That does not look like a Sigma Connect code. Copy the full code.";
   }
   if (parsed.state !== expectedState) {
     return "That code belongs to a different connect request. Open the URL above and try again.";

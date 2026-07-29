@@ -82,16 +82,19 @@ vi.mock("./ui/toast", () => ({
 import { ServerUpdateAction } from "./ServerUpdateAction";
 
 type ActionElement = ReactElement<{
+  readonly children?: unknown;
   readonly disabled?: boolean;
   readonly onClick?: () => void;
 }>;
 
-function renderAction(): ActionElement {
+function renderAction(
+  selfUpdate: "boot-service" | "respawn" | "desktop-managed" | null = "boot-service",
+): ActionElement {
   hooks.beginRender();
   return ServerUpdateAction({
     environmentId: "env-test" as EnvironmentId,
     serverLabel: "Test server",
-    selfUpdate: "boot-service",
+    selfUpdate,
     targetVersion: "0.0.29",
   }) as ActionElement;
 }
@@ -122,6 +125,14 @@ describe("ServerUpdateAction", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("fails closed when no Sigma-owned update source is configured", () => {
+    const action = renderAction(null);
+
+    expect(action.type).toBe("span");
+    expect(JSON.stringify(action.props.children)).toContain("Sigma Code");
+    expect(action.props.onClick).toBeUndefined();
   });
 
   it("starts a fresh reconnect timeout after a long install succeeds", async () => {

@@ -1,4 +1,9 @@
-# Release Checklist
+# Upstream-only reference: release checklist
+
+> The executable workflows described below are disabled in this downstream.
+> Do not use T3 repositories, hosted endpoints, Clerk applications, signing
+> identities, update metadata, or secrets for Sigma Code. A Sigma-owned release
+> repository and credentials must be configured before re-enabling any step.
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 

@@ -436,7 +436,7 @@ describe("mobile cloud link environment client", () => {
             }),
           );
         }
-        if (String(url).endsWith("/.well-known/t3/environment")) {
+        if (String(url).endsWith("/.well-known/sigmacode/environment")) {
           return Promise.resolve(
             Response.json({
               environmentId: "env-1",
@@ -486,7 +486,7 @@ describe("mobile cloud link environment client", () => {
       const environmentTokenBody = new URLSearchParams(
         requestBodyText(environmentTokenRequest?.body),
       );
-      expect(environmentTokenBody.get("client_label")).toBe("T3 Code Mobile");
+      expect(environmentTokenBody.get("client_label")).toBe("Sigma Code Mobile");
       expect(environmentTokenBody.get("client_device_type")).toBe("mobile");
       expect(environmentTokenBody.get("client_os")).toBe("iOS");
     }),
@@ -842,7 +842,7 @@ describe("mobile cloud link environment client", () => {
               Response.json(validDpopAccessTokenResponse("environment:connect")),
             );
           }
-          if (String(url).endsWith("/.well-known/t3/environment")) {
+          if (String(url).endsWith("/.well-known/sigmacode/environment")) {
             return Promise.resolve(
               Response.json({
                 environmentId: "env-1",
@@ -929,7 +929,7 @@ describe("mobile cloud link environment client", () => {
               Response.json(validDpopAccessTokenResponse("environment:connect")),
             );
           }
-          if (String(url).endsWith("/.well-known/t3/environment")) {
+          if (String(url).endsWith("/.well-known/sigmacode/environment")) {
             return Promise.resolve(
               Response.json({
                 environmentId: "env-1",
@@ -1137,7 +1137,7 @@ describe("mobile cloud link environment client", () => {
             Promise.resolve(
               String(url).endsWith("/v1/client/dpop-token")
                 ? Response.json(validDpopAccessTokenResponse("environment:connect"))
-                : String(url).endsWith("/.well-known/t3/environment")
+                : String(url).endsWith("/.well-known/sigmacode/environment")
                   ? Response.json({
                       environmentId: "env-other",
                       label: "Other Desktop",

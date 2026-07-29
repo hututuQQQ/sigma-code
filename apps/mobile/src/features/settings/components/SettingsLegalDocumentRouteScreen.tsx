@@ -1,6 +1,6 @@
 import { type NavigationProp, type ParamListBase, useNavigation } from "@react-navigation/native";
 import { useCallback, useLayoutEffect, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, ScrollView, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { AppText as Text } from "../../../components/AppText";
@@ -35,10 +35,11 @@ export function SettingsLegalDocumentCloseHeaderButton() {
 export function SettingsLegalDocumentExternalHeaderButton({
   externalUrl = LEGAL_URL,
 }: {
-  readonly externalUrl?: string;
+  readonly externalUrl?: string | null;
 }) {
   const iconColor = useThemeColor("--color-icon");
-  const safeExternalUrl = isLegalDocumentUrl(externalUrl) ? externalUrl : LEGAL_URL;
+  const safeExternalUrl = externalUrl && isLegalDocumentUrl(externalUrl) ? externalUrl : LEGAL_URL;
+  if (!safeExternalUrl) return null;
 
   return (
     <Pressable
@@ -61,7 +62,7 @@ export function SettingsLegalDocumentExternalHeaderButton({
 
 interface SettingsLegalDocumentRouteScreenProps {
   readonly documentName: string;
-  readonly documentUrl: string;
+  readonly documentUrl: string | null;
 }
 
 export function SettingsLegalDocumentRouteScreen({
@@ -88,6 +89,33 @@ export function SettingsLegalDocumentRouteScreen({
   const openExternalUrl = useCallback((url: string) => {
     void Linking.openURL(url).catch(() => undefined);
   }, []);
+  if (!documentUrl) {
+    return (
+      <ScrollView
+        className="flex-1 bg-sheet"
+        contentContainerClassName="gap-5 px-6 py-8"
+        contentInsetAdjustmentBehavior="automatic"
+      >
+        <Text className="font-t3-bold text-2xl text-foreground">Sigma Code legal notices</Text>
+        <Text selectable className="text-sm leading-relaxed text-foreground-muted">
+          Sigma Code is an independently maintained downstream fork of T3 Code. It is not affiliated
+          with, sponsored by, or endorsed by T3 Tools Inc.
+        </Text>
+        <Text className="font-t3-bold text-lg text-foreground">MIT License</Text>
+        <Text selectable className="text-sm leading-relaxed text-foreground-muted">
+          Copyright (c) 2026 T3 Tools Inc. Permission is hereby granted, free of charge, to any
+          person obtaining a copy of this software and associated documentation files, to deal in
+          the Software without restriction, subject to inclusion of the copyright and permission
+          notice. The Software is provided “AS IS”, without warranty of any kind.
+        </Text>
+        <Text className="font-t3-bold text-lg text-foreground">Packaged notices</Text>
+        <Text selectable className="text-sm leading-relaxed text-foreground-muted">
+          The complete LICENSE, NOTICE, THIRD_PARTY_NOTICES, web notices, Ghostty license, and
+          mobile-terminal vendor notices are included in this application’s native resources.
+        </Text>
+      </ScrollView>
+    );
+  }
   if (loadError) {
     return (
       <View className="flex-1 items-center justify-center gap-4 bg-sheet px-8">

@@ -20,6 +20,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import {
   BOOT_SERVICE_UNIT_ENV,
   BOOT_SERVICE_UNIT_FILE,
+  quoteSystemdValue,
   renderBootServiceUnit,
 } from "./bootService.ts";
 import * as SelfUpdate from "./selfUpdate.ts";
@@ -54,7 +55,7 @@ const makeRecordingRunnerLayer = (
           return {
             stdout:
               options?.stdoutFor?.(input.command, input.args) ??
-              (versionFromPath === undefined ? "" : `t3 v${versionFromPath}\n`),
+              (versionFromPath === undefined ? "" : `sigma-code v${versionFromPath}\n`),
             stderr: failed ? `${input.command} exploded` : "",
             code: ChildProcessSpawner.ExitCode(failed ? 1 : 0),
             timedOut: false,
@@ -69,36 +70,56 @@ const provideHostRefs = (input: {
   readonly platform: NodeJS.Platform;
   readonly env: NodeJS.ProcessEnv;
   readonly entryPath: string;
+  readonly configuredPackage?: boolean;
 }) =>
   Effect.provide(
     Layer.mergeAll(
       Layer.succeed(HostProcessPlatform, input.platform),
-      Layer.succeed(HostProcessEnvironment, input.env),
+      Layer.succeed(HostProcessEnvironment, {
+        ...input.env,
+        ...(input.configuredPackage === false
+          ? {}
+          : { SIGMACODE_SERVER_NPM_PACKAGE: "@sigma/code" }),
+      }),
       Layer.succeed(HostProcessExecutablePath, NODE_PATH),
       Layer.succeed(HostProcessArguments, [NODE_PATH, input.entryPath, "serve"]),
     ),
   );
 
-it("recognizes published npm artifacts as swappable entry points", () => {
-  assert.isTrue(SelfUpdate.isPublishedCliEntry("/usr/local/lib/node_modules/t3/dist/bin.mjs"));
+it("recognizes configured Sigma npm artifacts as swappable entry points", () => {
   assert.isTrue(
-    SelfUpdate.isPublishedCliEntry("/home/theo/.npm/_npx/abc123/node_modules/t3/dist/bin.mjs"),
+    SelfUpdate.isPublishedCliEntry(
+      "/usr/local/lib/node_modules/@sigma/code/dist/bin.mjs",
+      "@sigma/code",
+    ),
   );
   assert.isTrue(
     SelfUpdate.isPublishedCliEntry(
-      "C:\\Users\\theo\\AppData\\Roaming\\npm\\node_modules\\t3\\dist\\bin.mjs",
+      "/home/theo/.npm/_npx/abc123/node_modules/@sigma/code/dist/bin.mjs",
+      "@sigma/code",
+    ),
+  );
+  assert.isTrue(
+    SelfUpdate.isPublishedCliEntry(
+      "C:\\Users\\theo\\AppData\\Roaming\\npm\\node_modules\\@sigma\\code\\dist\\bin.mjs",
+      "@sigma/code",
     ),
   );
   // Dev checkouts and the desktop bundle run apps/server/dist directly.
-  assert.isFalse(SelfUpdate.isPublishedCliEntry("/home/theo/dev/t3/apps/server/dist/bin.mjs"));
-  assert.isFalse(SelfUpdate.isPublishedCliEntry(""));
+  assert.isFalse(
+    SelfUpdate.isPublishedCliEntry(
+      "/home/theo/dev/sigma-code/apps/server/dist/bin.mjs",
+      "@sigma/code",
+    ),
+  );
+  assert.isFalse(SelfUpdate.isPublishedCliEntry("", "@sigma/code"));
 });
 
 it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
   const makeHome = Effect.fn("test.makeHome")(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-self-update-test-" });
+    const home = yield* fs.makeTempDirectoryScoped({ prefix: "sigmacode-self-update-test-" });
     return { fs, path, home };
   });
 
@@ -111,13 +132,13 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
     const unitDir = path.join(home, ".config", "systemd", "user");
     yield* fs.makeDirectory(unitDir, { recursive: true });
     yield* fs.writeFileString(
-      path.join(unitDir, "t3code.service"),
+      path.join(unitDir, "sigmacode.service"),
       renderBootServiceUnit({
         nodePath: NODE_PATH,
-        t3EntryPath: entryPath,
-        baseDir: path.join(home, ".t3"),
-        logPath: path.join(home, ".t3", "userdata", "logs", "boot-service.log"),
-        unitPath: path.join(unitDir, "t3code.service"),
+        cliEntryPath: entryPath,
+        baseDir: path.join(home, ".sigma", "code"),
+        logPath: path.join(home, ".sigma", "code", "userdata", "logs", "boot-service.log"),
+        unitPath: path.join(unitDir, "sigmacode.service"),
       }),
     );
   });
@@ -125,7 +146,10 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
   it.effect("reports boot-service for the systemd-spawned unit process", () =>
     Effect.gen(function* () {
       const { home, path } = yield* makeHome();
-      const entryPath = path.join(home, ".t3/runtime/versions/0.0.28/node_modules/t3/dist/bin.mjs");
+      const entryPath = path.join(
+        home,
+        ".sigma/code/runtime/versions/0.0.28/node_modules/@sigma/code/dist/bin.mjs",
+      );
       yield* writeUnitReferencing(home, entryPath);
       const method = yield* SelfUpdate.resolveServerSelfUpdateCapability({
         desktopManaged: false,
@@ -147,7 +171,10 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
   it.effect("does not claim a systemd process owned by another unit", () =>
     Effect.gen(function* () {
       const { home, path } = yield* makeHome();
-      const entryPath = path.join(home, ".t3/runtime/versions/0.0.28/node_modules/t3/dist/bin.mjs");
+      const entryPath = path.join(
+        home,
+        ".sigma/code/runtime/versions/0.0.28/node_modules/@sigma/code/dist/bin.mjs",
+      );
       yield* writeUnitReferencing(home, entryPath);
       const method = yield* SelfUpdate.resolveServerSelfUpdateCapability({
         desktopManaged: false,
@@ -165,7 +192,10 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
   it.effect("reports respawn for a manual run of the pinned artifact", () =>
     Effect.gen(function* () {
       const { home, path } = yield* makeHome();
-      const entryPath = path.join(home, ".t3/runtime/versions/0.0.28/node_modules/t3/dist/bin.mjs");
+      const entryPath = path.join(
+        home,
+        ".sigma/code/runtime/versions/0.0.28/node_modules/@sigma/code/dist/bin.mjs",
+      );
       yield* writeUnitReferencing(home, entryPath);
       // Same unit on disk, but no INVOCATION_ID: restarting the unit would
       // not replace this process, so it must respawn itself instead.
@@ -185,10 +215,27 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
         provideHostRefs({
           platform: "darwin",
           env: { HOME: home },
-          entryPath: `${home}/.npm/_npx/abc123/node_modules/t3/dist/bin.mjs`,
+          entryPath: `${home}/.npm/_npx/abc123/node_modules/@sigma/code/dist/bin.mjs`,
         }),
       );
       assert.equal(method, "respawn");
+    }),
+  );
+
+  it.effect("reports no update capability without an explicit Sigma package", () =>
+    Effect.gen(function* () {
+      const { home } = yield* makeHome();
+      const method = yield* SelfUpdate.resolveServerSelfUpdateCapability({
+        desktopManaged: false,
+      }).pipe(
+        provideHostRefs({
+          platform: "darwin",
+          env: { HOME: home },
+          entryPath: `${home}/.npm/_npx/abc123/node_modules/@sigma/code/dist/bin.mjs`,
+          configuredPackage: false,
+        }),
+      );
+      assert.isNull(method);
     }),
   );
 
@@ -197,7 +244,10 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
       const { home, path } = yield* makeHome();
       // Desktop ownership wins over every process-shape heuristic: even a
       // systemd-looking pinned artifact belongs to the app that spawned it.
-      const entryPath = path.join(home, ".t3/runtime/versions/0.0.28/node_modules/t3/dist/bin.mjs");
+      const entryPath = path.join(
+        home,
+        ".sigma/code/runtime/versions/0.0.28/node_modules/@sigma/code/dist/bin.mjs",
+      );
       yield* writeUnitReferencing(home, entryPath);
       const method = yield* SelfUpdate.resolveServerSelfUpdateCapability({
         desktopManaged: true,
@@ -225,7 +275,7 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
         provideHostRefs({
           platform: "darwin",
           env: { HOME: home },
-          entryPath: `${home}/dev/t3/apps/server/dist/bin.mjs`,
+          entryPath: `${home}/dev/sigma-code/apps/server/dist/bin.mjs`,
         }),
       );
       assert.isNull(devMethod);
@@ -235,7 +285,8 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
         provideHostRefs({
           platform: "win32",
           env: { HOME: home },
-          entryPath: "C:\\Users\\theo\\AppData\\Roaming\\npm\\node_modules\\t3\\dist\\bin.mjs",
+          entryPath:
+            "C:\\Users\\theo\\AppData\\Roaming\\npm\\node_modules\\@sigma\\code\\dist\\bin.mjs",
         }),
       );
       assert.isNull(windowsMethod);
@@ -257,14 +308,15 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
     readonly failWhen?: (command: string, args: ReadonlyArray<string>) => boolean;
     readonly stdoutFor?: (command: string, args: ReadonlyArray<string>) => string | undefined;
     readonly failSpawn?: boolean;
+    readonly configuredPackage?: boolean;
   }) {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-self-update-test-" });
-    const baseDir = path.join(home, ".t3");
+    const home = yield* fs.makeTempDirectoryScoped({ prefix: "sigmacode-self-update-test-" });
+    const baseDir = path.join(home, ".sigma", "code");
     const entryPath =
       options?.entryPath ??
-      path.join(home, ".t3/runtime/versions/0.0.28/node_modules/t3/dist/bin.mjs");
+      path.join(home, ".sigma/code/runtime/versions/0.0.28/node_modules/@sigma/code/dist/bin.mjs");
     const env: NodeJS.ProcessEnv =
       options?.bootService === true
         ? {
@@ -277,13 +329,13 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
       const unitDir = path.join(home, ".config", "systemd", "user");
       yield* fs.makeDirectory(unitDir, { recursive: true });
       yield* fs.writeFileString(
-        path.join(unitDir, "t3code.service"),
+        path.join(unitDir, "sigmacode.service"),
         renderBootServiceUnit({
           nodePath: NODE_PATH,
-          t3EntryPath: entryPath,
+          cliEntryPath: entryPath,
           baseDir,
           logPath: path.join(baseDir, "userdata", "logs", "boot-service.log"),
-          unitPath: path.join(unitDir, "t3code.service"),
+          unitPath: path.join(unitDir, "sigmacode.service"),
         }),
       );
     }
@@ -333,7 +385,14 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
           configLayer,
         ),
       ),
-      provideHostRefs({ platform: options?.platform ?? "linux", env, entryPath }),
+      provideHostRefs({
+        platform: options?.platform ?? "linux",
+        env,
+        entryPath,
+        ...(options?.configuredPackage === undefined
+          ? {}
+          : { configuredPackage: options.configuredPackage }),
+      }),
     );
     return {
       fs,
@@ -352,8 +411,19 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
     Effect.gen(function* () {
       const context = yield* makeContext();
       const error = yield* context.service.update({ targetVersion: "latest" }).pipe(Effect.flip);
-      assert.include(error.reason, "not an exact t3 version");
+      assert.include(error.reason, "not an exact Sigma Code version");
       assert.lengthOf(context.commands, 0);
+    }),
+  );
+
+  it.effect("fails closed without a Sigma-owned package", () =>
+    Effect.gen(function* () {
+      const context = yield* makeContext({ configuredPackage: false });
+      const error = yield* context.service.update({ targetVersion: "0.0.29" }).pipe(Effect.flip);
+
+      assert.include(error.reason, "SIGMACODE_SERVER_NPM_PACKAGE");
+      assert.lengthOf(context.commands, 0);
+      assert.lengthOf(context.spawns, 0);
     }),
   );
 
@@ -370,7 +440,7 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
   it.effect("fails without touching anything when no update method applies", () =>
     Effect.gen(function* () {
       const context = yield* makeContext({
-        entryPath: "/home/theo/dev/t3/apps/server/dist/bin.mjs",
+        entryPath: "/home/theo/dev/sigma-code/apps/server/dist/bin.mjs",
       });
       const error = yield* context.service.update({ targetVersion: "0.0.29" }).pipe(Effect.flip);
       assert.include(error.reason, "cannot update itself");
@@ -382,7 +452,7 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
     Effect.gen(function* () {
       const context = yield* makeContext({ failWhen: (command) => command === "npm" });
       const error = yield* context.service.update({ targetVersion: "0.0.29" }).pipe(Effect.flip);
-      assert.equal(error.reason, "Could not install the requested t3 version.");
+      assert.equal(error.reason, "Could not install the requested Sigma Code version.");
       yield* TestClock.adjust(Duration.seconds(10));
       assert.lengthOf(context.spawns, 0);
       assert.equal(context.exitCount(), 0);
@@ -400,7 +470,14 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
         },
       });
       const versionDir = context.path.join(context.baseDir, "runtime", "versions", "0.0.29");
-      const entryPath = context.path.join(versionDir, "node_modules", "t3", "dist", "bin.mjs");
+      const entryPath = context.path.join(
+        versionDir,
+        "node_modules",
+        "@sigma",
+        "code",
+        "dist",
+        "bin.mjs",
+      );
       yield* context.fs.makeDirectory(context.path.dirname(entryPath), { recursive: true });
       yield* context.fs.writeFileString(entryPath, "export {};\n");
       yield* context.fs.writeFileString(
@@ -427,7 +504,7 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
     Effect.gen(function* () {
       const context = yield* makeContext({
         stdoutFor: (command, args) =>
-          command === NODE_PATH && args[1] === "--version" ? "t3 v0.0.28\n" : undefined,
+          command === NODE_PATH && args[1] === "--version" ? "sigma-code v0.0.28\n" : undefined,
       });
       const versionDir = context.path.join(context.baseDir, "runtime", "versions", "0.0.29");
 
@@ -468,12 +545,12 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
 
       const pinnedEntry = context.path.join(
         context.baseDir,
-        "runtime/versions/0.0.29/node_modules/t3/dist/bin.mjs",
+        "runtime/versions/0.0.29/node_modules/@sigma/code/dist/bin.mjs",
       );
       assert.deepEqual(
         context.commands.map((entry) => [entry.command, ...entry.args].join(" ")),
         [
-          `npm install --prefix ${context.path.join(context.baseDir, "runtime/versions/0.0.29")} --no-fund --no-audit t3@0.0.29`,
+          `npm install --prefix ${context.path.join(context.baseDir, "runtime/versions/0.0.29")} --no-fund --no-audit @sigma/code@0.0.29`,
           `${NODE_PATH} ${pinnedEntry} --version`,
         ],
       );
@@ -498,12 +575,12 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
 
       const pinnedEntry = context.path.join(
         context.baseDir,
-        "runtime/versions/0.0.29/node_modules/t3/dist/bin.mjs",
+        "runtime/versions/0.0.29/node_modules/@sigma/code/dist/bin.mjs",
       );
       const unit = yield* context.fs.readFileString(
-        context.path.join(context.home, ".config", "systemd", "user", "t3code.service"),
+        context.path.join(context.home, ".config", "systemd", "user", "sigmacode.service"),
       );
-      assert.include(unit, `ExecStart=${NODE_PATH} ${pinnedEntry} serve`);
+      assert.include(unit, `ExecStart=${NODE_PATH} ${quoteSystemdValue(pinnedEntry)} serve`);
       assert.deepEqual(
         context.commands.map((entry) => entry.command),
         ["npm", NODE_PATH, "systemctl", "systemctl"],
@@ -512,7 +589,7 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
 
       assert.deepEqual(context.commands[3], {
         command: "systemctl",
-        args: ["--user", "restart", "t3code.service"],
+        args: ["--user", "restart", "sigmacode.service"],
       });
       assert.lengthOf(context.spawns, 0);
       // systemd replaces the process; the server must not exit itself.

@@ -16,7 +16,7 @@ import * as Electron from "electron";
 
 import * as NetService from "@t3tools/shared/Net";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { resolveRemoteT3CliPackageSpec } from "@t3tools/ssh/command";
+import { resolveRemoteSigmaCliPackageSpec } from "@t3tools/ssh/command";
 import type { RemoteT3RunnerOptions } from "@t3tools/ssh/tunnel";
 import serverPackageJson from "../../server/package.json" with { type: "json" };
 
@@ -87,12 +87,15 @@ const resolveDesktopSshCliRunner = (
       nodeEngineRange: serverPackageJson.engines.node,
     };
   }
+  const configuredPackageName = process.env.SIGMACODE_SERVER_NPM_PACKAGE;
+  const packageSpec = resolveRemoteSigmaCliPackageSpec({
+    appVersion: environment.appVersion,
+    updateChannel: settings.updateChannel,
+    isDevelopment: environment.isDevelopment,
+    ...(configuredPackageName === undefined ? {} : { packageName: configuredPackageName }),
+  });
   return {
-    packageSpec: resolveRemoteT3CliPackageSpec({
-      appVersion: environment.appVersion,
-      updateChannel: settings.updateChannel,
-      isDevelopment: environment.isDevelopment,
-    }),
+    ...(packageSpec === undefined ? {} : { packageSpec }),
     nodeEngineRange: serverPackageJson.engines.node,
   };
 };

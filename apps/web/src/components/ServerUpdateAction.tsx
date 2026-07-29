@@ -5,10 +5,8 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
-import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { manualServerUpdateCommand } from "~/versionSkew";
 import { Button } from "./ui/button";
 import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
@@ -27,10 +25,8 @@ function updateFailureMessage(error: unknown): string {
 /**
  * The call-to-action for a version-skewed server, matched to the update path
  * it advertises: a one-click install-and-restart for servers that can update
- * themselves, an update-the-desktop-app hint for desktop-managed backends
- * (running `npx t3` there would start a second server, not update this one),
- * and copying the manual relaunch command for everything else — so the skew
- * warning always offers a way out.
+ * themselves, an update-the-desktop-app hint for desktop-managed backends,
+ * and a fail-closed instruction for source or externally managed servers.
  */
 export function ServerUpdateAction({
   environmentId,
@@ -50,24 +46,6 @@ export function ServerUpdateAction({
   const inFlightRef = useRef(false);
   const attemptRef = useRef(0);
   const expiryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { copyToClipboard } = useCopyToClipboard<{ command: string }>({
-    target: "update command",
-    onCopy: ({ command }) => {
-      toastManager.add({
-        type: "success",
-        title: "Update command copied",
-        description: `Run \`${command}\` on ${serverLabel} to update it.`,
-      });
-    },
-    onError: (error) => {
-      toastManager.add({
-        type: "error",
-        title: "Could not copy update command",
-        description: error.message,
-      });
-    },
-  });
-
   useEffect(
     () => () => {
       if (expiryRef.current !== null) {
@@ -147,7 +125,7 @@ export function ServerUpdateAction({
         toastManager.add({
           type: "success",
           title: `Updating ${serverLabel}`,
-          description: `t3@${result.value.targetVersion} is installed — the server is restarting and will reconnect shortly.`,
+          description: `Sigma Code ${result.value.targetVersion} is installed — the server is restarting and will reconnect shortly.`,
         });
       })
       .catch((error: unknown) => {
@@ -180,11 +158,11 @@ export function ServerUpdateAction({
   }
 
   if (selfUpdate === null) {
-    const command = manualServerUpdateCommand(targetVersion);
     return (
-      <Button size="xs" variant="outline" onClick={() => copyToClipboard(command, { command })}>
-        Copy update command
-      </Button>
+      <span className="text-muted-foreground text-xs">
+        Install Sigma Code {targetVersion} from your configured Sigma release, then relaunch this
+        server.
+      </span>
     );
   }
 

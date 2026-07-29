@@ -11,10 +11,12 @@ packages/*/dist
 .env
 .env.local
 build/
+dist/
 .logs/
 release/
 release-mock/
 .t3
+.sigma-code
 .idea/
 apps/web/.playwright
 apps/web/playwright-report

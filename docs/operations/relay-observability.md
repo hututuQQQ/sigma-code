@@ -1,4 +1,8 @@
-# Relay observability
+# Upstream-only reference: relay observability
+
+> The datasets and deployment names below belong to the upstream design and are
+> not Sigma Code defaults. Relay deployment fails closed until Sigma-owned
+> Cloudflare and telemetry configuration is committed.
 
 The relay Alchemy stack owns a focused Axiom trace setup:
 

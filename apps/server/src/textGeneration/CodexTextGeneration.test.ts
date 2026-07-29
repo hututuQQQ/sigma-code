@@ -7,6 +7,7 @@ import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import { createModelSelection } from "@t3tools/shared/model";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { expect } from "vite-plus/test";
 
 import { CodexSettings, ProviderInstanceId, TextGenerationError } from "@t3tools/contracts";
@@ -45,9 +46,94 @@ function makeFakeCodexBinary(
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const binDir = path.join(dir, "bin");
-    const codexPath = path.join(binDir, "codex");
     yield* fs.makeDirectory(binDir, { recursive: true });
 
+    if ((yield* HostProcessPlatform) === "win32") {
+      const scriptPath = path.join(binDir, "fake-codex.cjs");
+      const codexPath = path.join(binDir, "codex.cmd");
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      const serializedInput = JSON.stringify(input);
+      yield* fs.writeFileString(
+        scriptPath,
+        [
+          'const fs = require("node:fs");',
+          `const config = ${serializedInput};`,
+          "const args = process.argv.slice(2);",
+          'let outputPath = "";',
+          "let seenImage = false;",
+          'let seenServiceTier = "";',
+          'let seenReasoningEffort = "";',
+          "for (let index = 0; index < args.length; index += 1) {",
+          '  if (args[index] === "--image") {',
+          "    seenImage = Boolean(args[index + 1]);",
+          "    index += 1;",
+          "    continue;",
+          "  }",
+          '  if (args[index] === "--config") {',
+          '    const value = args[index + 1] ?? "";',
+          '    if (value.startsWith("service_tier=")) seenServiceTier = value;',
+          '    if (value.startsWith("model_reasoning_effort=")) seenReasoningEffort = value;',
+          "    index += 1;",
+          "    continue;",
+          "  }",
+          '  if (args[index] === "--output-last-message") {',
+          '    outputPath = args[index + 1] ?? "";',
+          "    index += 1;",
+          "  }",
+          "}",
+          "const fail = (message, exitCode) => {",
+          "  process.stderr.write(`${message}\\n`);",
+          "  process.exit(exitCode);",
+          "};",
+          "if (config.requireArg !== undefined && !args.includes(config.requireArg)) {",
+          "  fail(`missing arg: ${config.requireArg}`, 8);",
+          "}",
+          "if (config.forbidArg !== undefined && args.includes(config.forbidArg)) {",
+          "  fail(`forbidden arg: ${config.forbidArg}`, 9);",
+          "}",
+          "if (config.requireImage && !seenImage) fail('missing --image input', 2);",
+          "if (",
+          "  config.requireServiceTier !== undefined &&",
+          '  seenServiceTier !== `service_tier="${config.requireServiceTier}"`',
+          ") {",
+          "  fail(`unexpected service tier config: ${seenServiceTier}`, 5);",
+          "}",
+          "if (",
+          "  config.requireReasoningEffort !== undefined &&",
+          '  seenReasoningEffort !== `model_reasoning_effort="${config.requireReasoningEffort}"`',
+          ") {",
+          "  fail(`unexpected reasoning effort config: ${seenReasoningEffort}`, 6);",
+          "}",
+          "if (config.forbidReasoningEffort && seenReasoningEffort) {",
+          "  fail(`reasoning effort config should be omitted: ${seenReasoningEffort}`, 7);",
+          "}",
+          'const stdinContent = fs.readFileSync(0, "utf8");',
+          "if (",
+          "  config.stdinMustContain !== undefined &&",
+          "  !stdinContent.includes(config.stdinMustContain)",
+          ") {",
+          "  fail('stdin missing expected content', 3);",
+          "}",
+          "if (",
+          "  config.stdinMustNotContain !== undefined &&",
+          "  stdinContent.includes(config.stdinMustNotContain)",
+          ") {",
+          "  fail('stdin contained forbidden content', 4);",
+          "}",
+          "if (config.stderr !== undefined) process.stderr.write(`${config.stderr}\\n`);",
+          'if (outputPath) fs.writeFileSync(outputPath, config.output, "utf8");',
+          "process.exit(config.exitCode ?? 0);",
+          "",
+        ].join("\n"),
+      );
+      yield* fs.writeFileString(
+        codexPath,
+        [`@echo off`, `@"${process.execPath}" "%~dp0fake-codex.cjs" %*`, ""].join("\r\n"),
+      );
+      return codexPath;
+    }
+
+    const codexPath = path.join(binDir, "codex");
     yield* fs.writeFileString(
       codexPath,
       [
@@ -282,7 +368,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGeneration", (it) => {
     ),
   );
 
-  it.effect("uses T3CODE_CODEX_LAUNCH_ARGS for codex exec over settings", () =>
+  it.effect("uses SIGMACODE_CODEX_LAUNCH_ARGS for codex exec over settings", () =>
     withFakeCodexEnv(
       {
         output: JSON.stringify({
@@ -290,7 +376,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGeneration", (it) => {
           body: "",
         }),
         launchArgs: "--enable settings-feature",
-        environment: { T3CODE_CODEX_LAUNCH_ARGS: " --strict-config --listen off " },
+        environment: { SIGMACODE_CODEX_LAUNCH_ARGS: " --strict-config --listen off " },
         requireArg: "--strict-config",
         forbidArg: "settings-feature",
       },

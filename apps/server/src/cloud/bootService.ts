@@ -11,24 +11,30 @@ import * as Schema from "effect/Schema";
 
 import {
   HostProcessArguments,
+  HostProcessEnvironment,
   HostProcessExecutablePath,
   HostProcessPlatform,
 } from "@t3tools/shared/hostProcess";
 
 import * as ProcessRunner from "../processRunner.ts";
-import { ensurePinnedRuntimeInstalled, pinnedRuntimePaths } from "./pinnedRuntime.ts";
+import {
+  configuredSigmaServerNpmPackage,
+  ensurePinnedRuntimeInstalled,
+  pinnedRuntimePaths,
+  SIGMA_SERVER_NPM_PACKAGE_ENV,
+} from "./pinnedRuntime.ts";
 
 /**
- * Installs T3 Code as a per-user boot service. Linux-only for now: systemd
+ * Installs Sigma Code as a per-user boot service. Linux-only for now: systemd
  * user unit + loginctl enable-linger. The service runs a stable or pinned
- * runtime — never an ephemeral `npx t3` cache whose eviction could break
+ * runtime — never an ephemeral package-manager cache whose eviction could break
  * startup.
  */
 
-const BOOT_SERVICE_NAME = "t3code";
+const BOOT_SERVICE_NAME = "sigmacode";
 
 export const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
-export const BOOT_SERVICE_UNIT_ENV = "T3_BOOT_SERVICE_UNIT";
+export const BOOT_SERVICE_UNIT_ENV = "SIGMACODE_BOOT_SERVICE_UNIT";
 
 const EPHEMERAL_CACHE_SEGMENTS = [
   "/_npx/", // npx
@@ -39,7 +45,7 @@ const EPHEMERAL_CACHE_SEGMENTS = [
 ];
 
 /**
- * `npx t3` (and pnpm dlx / bunx) run out of ephemeral package-manager
+ * `npx`, `pnpm dlx`, and `bunx` run out of ephemeral package-manager
  * caches that can be evicted at any time — a boot service must never point
  * there. Global installs, repo checkouts, and the pinned runtime below are
  * all stable.
@@ -71,8 +77,8 @@ export function quoteSystemdValue(value: string): string {
 export interface BootServicePlan {
   /** Absolute path of the node binary running this CLI. */
   readonly nodePath: string;
-  /** Absolute path of the pinned t3 entry point the unit will run. */
-  readonly t3EntryPath: string;
+  /** Absolute path of the Sigma Code CLI entry point the unit will run. */
+  readonly cliEntryPath: string;
   readonly baseDir: string;
   readonly logPath: string;
   readonly unitPath: string;
@@ -90,7 +96,7 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
   // relay connection, and Restart=always covers early-boot failures.
   return [
     "[Unit]",
-    "Description=T3 Code server",
+    "Description=Sigma Code server",
     // Give up after 5 crashes in 5 minutes so a persistently broken install
     // (deleted runtime, broken workspace) stops instead of restarting every
     // 5s forever and growing the unrotated append log without bound.
@@ -100,9 +106,9 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
     "[Service]",
     "Type=simple",
     "WorkingDirectory=%h",
-    `Environment=T3CODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
+    `Environment=SIGMACODE_HOME=${quoteSystemdValue(plan.baseDir)}`,
     `Environment=${BOOT_SERVICE_UNIT_ENV}=${BOOT_SERVICE_UNIT_FILE}`,
-    `ExecStart=${quoteSystemdValue(plan.nodePath)} ${quoteSystemdValue(plan.t3EntryPath)} serve`,
+    `ExecStart=${quoteSystemdValue(plan.nodePath)} ${quoteSystemdValue(plan.cliEntryPath)} serve`,
     "Restart=always",
     "RestartSec=5",
     `StandardOutput=append:${escapeSystemdSpecifiers(plan.logPath)}`,
@@ -145,7 +151,7 @@ export class BootServiceInstallError extends Schema.TaggedErrorClass<BootService
   { cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return "Could not set up the T3 Code background service.";
+    return "Could not set up the Sigma Code background service.";
   }
 }
 
@@ -197,6 +203,8 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     cliEntryPath: hostArguments[1] ?? "",
   };
   const platform = yield* HostProcessPlatform;
+  const environment = yield* HostProcessEnvironment;
+  const packageName = configuredSigmaServerNpmPackage(environment);
   const homeDir = yield* Config.string("HOME").pipe(Config.withDefault(""));
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -205,7 +213,10 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
   const unitDir = path.join(homeDir, ".config", "systemd", "user");
   const unitPath = path.join(unitDir, BOOT_SERVICE_UNIT_FILE);
   const logPath = path.join(input.logsDir, "boot-service.log");
-  const runtimePaths = pinnedRuntimePaths(path, input.baseDir, input.cliVersion);
+  const runtimePaths =
+    packageName === null
+      ? null
+      : pinnedRuntimePaths(path, input.baseDir, input.cliVersion, packageName);
 
   const requireSystemdLinux = Effect.gen(function* () {
     if (platform !== "linux" || homeDir === "") {
@@ -249,15 +260,23 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
    * install (global bin, repo checkout) is used as-is; an ephemeral cache
    * entry is replaced by `npm install --prefix`-ing the exact running
    * version into <baseDir>/runtime/versions/<v>. A real install (not a copy
-   * of bin.mjs) because t3 ships native deps like node-pty.
+   * of bin.mjs) because Sigma Code ships native dependencies like node-pty.
    */
   const ensurePinnedRuntime = Effect.gen(function* () {
     if (!isEphemeralCacheEntry(host.cliEntryPath)) {
       return;
     }
+    if (packageName === null) {
+      return yield* new BootServiceInstallError({
+        cause: new Error(
+          `Refusing to fetch a server package because ${SIGMA_SERVER_NPM_PACKAGE_ENV} is not configured.`,
+        ),
+      });
+    }
     yield* ensurePinnedRuntimeInstalled({
       baseDir: input.baseDir,
       version: input.cliVersion,
+      packageName,
       fs,
       path,
       runner,
@@ -288,12 +307,12 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
 
   // Where the unit will point: derivable without touching the network, so
   // status can compare units purely; install materializes it first.
-  const plannedEntryPath = isEphemeralCacheEntry(host.cliEntryPath)
-    ? runtimePaths.entryPath
-    : host.cliEntryPath;
+  const ephemeralEntry = isEphemeralCacheEntry(host.cliEntryPath);
+  const plannedEntryPath =
+    ephemeralEntry && runtimePaths !== null ? runtimePaths.entryPath : host.cliEntryPath;
   const plan: BootServicePlan = {
     nodePath: host.execPath,
-    t3EntryPath: plannedEntryPath,
+    cliEntryPath: plannedEntryPath,
     baseDir: input.baseDir,
     logPath,
     unitPath,
@@ -412,10 +431,13 @@ export const make = Effect.fn("cloud.boot_service.make")(function* (input: {
     const unit = yield* fs.readFileString(unitPath);
     // A unit is current only if it matches what install would write now (an
     // older CLI wrote a different runtime/node path) AND the entry point it
-    // references still exists (a pinned runtime under ~/.t3 can be deleted to
+    // references still exists (a pinned runtime under ~/.sigma/code can be deleted to
     // reclaim space). Either mismatch makes connect offer a repair.
     const entryExists = yield* fs.exists(plannedEntryPath);
-    const current = unit === renderBootServiceUnit(plan) && entryExists;
+    const current =
+      !(ephemeralEntry && packageName === null) &&
+      unit === renderBootServiceUnit(plan) &&
+      entryExists;
     return { supported: true, installed: true, current, unitPath, logPath };
   }).pipe(
     Effect.mapError((cause) => new BootServiceInstallError({ cause })),

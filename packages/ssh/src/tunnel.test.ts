@@ -89,14 +89,14 @@ function commandArgs(command: ChildProcess.Command): ReadonlyArray<string> {
 }
 
 describe("ssh tunnel scripts", () => {
-  it("builds the remote t3 runner with npx and npm fallbacks", () => {
+  it("builds the isolated Sigma runner without an implicit remote package", () => {
     const script = buildRemoteT3RunnerScript({ nodeEngineRange: TEST_NODE_ENGINE_RANGE });
 
     assert.include(script, "T3_NODE_SCRIPT_PATH=''");
-    assert.include(script, 'exec t3 "$@"');
-    assert.include(script, "exec npx --yes 't3@latest' \"$@\"");
-    assert.include(script, "exec npm exec --yes 't3@latest' -- \"$@\"");
-    assert.include(script, "could not install 't3@latest'");
+    assert.include(script, "SIGMACODE_PACKAGE_SPEC=''");
+    assert.include(script, 'exec sigma-code "$@"');
+    assert.notInclude(script, "t3@latest");
+    assert.include(script, "Automatic remote installation is disabled");
     assert.include(script, 'prepend_path_if_dir "$HOME/.local/bin"');
     assert.include(script, `T3_NODE_ENGINE_RANGE='${TEST_NODE_ENGINE_RANGE}'`);
     assert.include(script, "remote_node_satisfies_engine()");
@@ -122,14 +122,15 @@ describe("ssh tunnel scripts", () => {
     assert.notInclude(script, TEST_NODE_ENGINE_RANGE);
   });
 
-  it("shell-quotes package specs in the remote t3 runner", () => {
+  it("shell-quotes explicitly configured Sigma package specs", () => {
     const script = buildRemoteT3RunnerScript({
-      packageSpec: "t3@nightly; touch /tmp/t3-owned",
+      packageSpec: "@sigma/code@nightly; touch /tmp/sigma-owned",
     });
 
-    assert.include(script, "exec npx --yes 't3@nightly; touch /tmp/t3-owned' \"$@\"");
-    assert.include(script, "exec npm exec --yes 't3@nightly; touch /tmp/t3-owned' -- \"$@\"");
-    assert.notInclude(script, "exec npx --yes t3@nightly; touch /tmp/t3-owned");
+    assert.include(script, "SIGMACODE_PACKAGE_SPEC='@sigma/code@nightly; touch /tmp/sigma-owned'");
+    assert.include(script, 'exec npx --yes "$SIGMACODE_PACKAGE_SPEC" "$@"');
+    assert.include(script, 'exec npm exec --yes "$SIGMACODE_PACKAGE_SPEC" -- "$@"');
+    assert.notInclude(script, "exec npx --yes @sigma/code@nightly; touch /tmp/sigma-owned");
   });
 
   it("builds the remote t3 runner with a node script override", () => {
@@ -144,7 +145,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(script, 'exec node "$T3_NODE_SCRIPT_PATH" "$@"');
   });
 
-  it("uses the remote t3 runner for launch and pairing scripts", () => {
+  it("uses the remote Sigma runner for launch and pairing scripts", () => {
     const target = {
       alias: "devbox",
       hostname: "devbox.example.com",
@@ -172,15 +173,21 @@ describe("ssh tunnel scripts", () => {
     assert.include(buildRemoteLaunchScript(), '"$RUNNER_FILE" serve --host 127.0.0.1');
     assert.include(buildRemoteLaunchScript(), '--base-dir "$DEFAULT_SERVER_HOME"');
     assert.notInclude(buildRemoteLaunchScript(), "server-home");
-    assert.include(buildRemoteLaunchScript(), "Remote T3 server did not become ready");
-    assert.include(buildRemoteLaunchScript({ packageSpec: "t3@nightly" }), "t3@nightly");
+    assert.include(buildRemoteLaunchScript(), "Remote Sigma Code server did not become ready");
+    assert.include(
+      buildRemoteLaunchScript({ packageSpec: "@sigma/code@nightly" }),
+      "@sigma/code@nightly",
+    );
     assert.include(
       buildRemotePairingScript(target),
       '"$RUNNER_FILE" auth pairing create --base-dir "$PAIRING_BASE_DIR" --json',
     );
     assert.include(buildRemotePairingScript(target), 'PAIRING_BASE_DIR="$DEFAULT_SERVER_HOME"');
     assert.notInclude(buildRemotePairingScript(target), "server-home");
-    assert.include(buildRemotePairingScript(target, { packageSpec: "t3@nightly" }), "t3@nightly");
+    assert.include(
+      buildRemotePairingScript(target, { packageSpec: "@sigma/code@nightly" }),
+      "@sigma/code@nightly",
+    );
     assert.include(
       buildRemoteStopScript(target),
       'if [ "$REMOTE_MANAGED" != "external" ] && [ -n "$REMOTE_PID" ]',
@@ -189,7 +196,7 @@ describe("ssh tunnel scripts", () => {
     assert.include(buildRemoteStopScript(target), 'rm -f "$PID_FILE" "$PORT_FILE" "$MANAGED_FILE"');
     assert.include(
       buildRemoteLaunchScript(),
-      'DEFAULT_RUNTIME_FILE="$DEFAULT_SERVER_HOME/userdata/server-runtime.json"',
+      'DEFAULT_RUNTIME_FILE="$DEFAULT_SERVER_HOME/server-runtime.json"',
     );
     assert.include(buildRemoteLaunchScript(), "resolve_default_runtime_port()");
     assert.include(

@@ -14,6 +14,8 @@ import type * as AcpSchema from "effect-acp/schema";
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
+const emitThought = process.env.SIGMACODE_ACP_EMIT_THOUGHT === "1";
+const emitSigmaPlan = process.env.SIGMACODE_ACP_EMIT_PLAN === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
 const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
@@ -22,6 +24,7 @@ const emitXAiAskUserQuestion = process.env.T3_ACP_EMIT_XAI_ASK_USER_QUESTION ===
 const emitXAiPromptCompleteThenHang = process.env.T3_ACP_EMIT_XAI_PROMPT_COMPLETE_THEN_HANG === "1";
 const emitForeignSessionUpdates = process.env.T3_ACP_EMIT_FOREIGN_SESSION_UPDATES === "1";
 const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
+const hangPromptText = process.env.SIGMACODE_ACP_HANG_PROMPT_TEXT;
 const hangFirstPromptForever = process.env.T3_ACP_HANG_FIRST_PROMPT_FOREVER === "1";
 const emitLateUpdateAfterCancel = process.env.T3_ACP_EMIT_LATE_UPDATE_AFTER_CANCEL === "1";
 const omitXAiPromptCompleteStopReason =
@@ -380,6 +383,8 @@ const program = Effect.gen(function* () {
     }),
   );
 
+  yield* agent.handleCloseSession(() => Effect.succeed({}));
+
   yield* agent.handleSetSessionModel((request) =>
     Effect.gen(function* () {
       if (!grokAcpModels.some((model) => model.modelId === request.modelId)) {
@@ -518,7 +523,14 @@ const program = Effect.gen(function* () {
         return yield* Effect.never;
       }
 
-      if (hangPromptForever || (hangFirstPromptForever && promptCount === 1)) {
+      const requestedPromptText = request.prompt
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("");
+      if (
+        hangPromptForever ||
+        (hangFirstPromptForever && promptCount === 1) ||
+        (hangPromptText !== undefined && requestedPromptText.includes(hangPromptText))
+      ) {
         return yield* Effect.never;
       }
 
@@ -578,6 +590,37 @@ const program = Effect.gen(function* () {
         });
 
         return yield* Effect.never;
+      }
+
+      if (emitThought) {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "inspecting from Sigma mock" },
+          },
+        });
+      }
+
+      if (emitSigmaPlan) {
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "plan",
+            entries: [
+              {
+                content: "Inspect Sigma Runtime state",
+                priority: "high",
+                status: "completed",
+              },
+              {
+                content: "Apply the requested change",
+                priority: "high",
+                status: "in_progress",
+              },
+            ],
+          },
+        });
       }
 
       if (emitInterleavedAssistantToolCalls) {
@@ -686,7 +729,9 @@ const program = Effect.gen(function* () {
 
         const cancelled =
           cancelledSessions.delete(requestedSessionId) ||
-          permission.outcome.outcome === "cancelled";
+          permission.outcome.outcome === "cancelled" ||
+          (permission.outcome.outcome === "selected" &&
+            permission.outcome.optionId === permissionOptionIds.rejectOnce);
 
         yield* agent.client.sessionUpdate({
           sessionId: requestedSessionId,
@@ -878,13 +923,26 @@ const program = Effect.gen(function* () {
   );
 
   yield* agent.handleUnknownExtRequest((method, params) => {
+    if (method === "_sigma/health") {
+      return Effect.succeed({
+        ok: true,
+        name: "Sigma",
+        protocolVersion: 1,
+        version: "test",
+      });
+    }
+
+    if (method === "_sigma/steer") {
+      return Effect.succeed({});
+    }
+
     if (method === "cursor/list_available_models") {
       return Effect.succeed({
         models: availableModels(),
       });
     }
 
-    if (method !== "session/mode/set") {
+    if (method !== "session/mode/set" && method !== "session/set_mode") {
       return Effect.fail(AcpError.AcpRequestError.methodNotFound(method));
     }
 

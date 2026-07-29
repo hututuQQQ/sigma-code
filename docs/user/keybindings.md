@@ -1,8 +1,11 @@
 # Keybindings
 
-T3 Code reads keybindings from:
+Sigma Code reads keybindings from:
 
-- `~/.t3/keybindings.json`
+- `~/.sigma/code/keybindings.json`
+
+An explicit `SIGMACODE_HOME` or `--home-dir` changes the base directory. Sigma
+Code never reads or writes T3 Code's `~/.t3` keybindings.
 
 The file must be a JSON array of rules:
 
@@ -13,7 +16,8 @@ The file must be a JSON array of rules:
 ]
 ```
 
-See the full schema for more details: [`packages/contracts/src/keybindings.ts`](../../packages/contracts/src/keybindings.ts)
+See the full schema for more details:
+[`packages/contracts/src/keybindings.ts`](../../packages/contracts/src/keybindings.ts).
 
 ## Defaults
 
@@ -37,81 +41,67 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
 ]
 ```
 
-For most up to date defaults, see [`DEFAULT_KEYBINDINGS` in `apps/server/src/keybindings.ts`](../../apps/server/src/keybindings.ts)
+For the most up-to-date defaults, see
+[`DEFAULT_KEYBINDINGS` in `apps/server/src/keybindings.ts`](../../apps/server/src/keybindings.ts).
 
 ## Configuration
 
-### Rule Shape
+### Rule shape
 
 Each entry supports:
 
-- `key` (required): shortcut string, like `mod+j`, `ctrl+k`, `cmd+shift+d`
+- `key` (required): shortcut string, such as `mod+j`, `ctrl+k`, or
+  `cmd+shift+d`
 - `command` (required): action ID
 - `when` (optional): boolean expression controlling when the shortcut is active
 
-Invalid rules are ignored. Invalid config files are ignored. Warnings are logged by the server.
+Invalid rules and invalid config files are ignored, with warnings logged by the
+server.
 
-### Available Commands
+### Available commands
 
-- `terminal.toggle`: open/close terminal drawer
-- `terminal.split`: split terminal (in focused terminal context by default)
-- `terminal.new`: create new terminal (in focused terminal context by default)
-- `terminal.close`: close/kill the focused terminal (in focused terminal context by default)
-- `preview.toggle`: open/close the in-app browser preview panel (desktop app only)
-- `preview.refresh`: reload the active preview tab (in focused preview context by default)
-- `preview.focusUrl`: focus the URL input of the preview panel (in focused preview context by default)
-- `preview.zoomIn`: zoom the preview viewport in one step (in focused preview context by default)
-- `preview.zoomOut`: zoom the preview viewport out one step (in focused preview context by default)
-- `preview.resetZoom`: reset the preview zoom to 100% (in focused preview context by default)
-- `commandPalette.toggle`: open or close the global command palette
-- `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
-- `chat.newLocal`: create a new chat thread for the active project in a new environment (local/worktree determined by app settings (default `local`))
-- `editor.openFavorite`: open current project/worktree in the last-used editor
-- `script.{id}.run`: run a project script by id (for example `script.test.run`)
+- `terminal.toggle`: open or close the terminal drawer
+- `terminal.split`: split the focused terminal
+- `terminal.new`: create a terminal
+- `terminal.close`: close the focused terminal
+- `preview.toggle`: open or close the in-app browser preview
+- `preview.refresh`: reload the active preview tab
+- `preview.focusUrl`: focus the preview URL input
+- `preview.zoomIn`: zoom the preview viewport in
+- `preview.zoomOut`: zoom the preview viewport out
+- `preview.resetZoom`: reset preview zoom to 100%
+- `commandPalette.toggle`: open or close the command palette
+- `chat.new`: create a thread preserving the active branch/worktree state
+- `chat.newLocal`: create a thread in a new environment
+- `editor.openFavorite`: open the current project in the last-used editor
+- `script.{id}.run`: run a project script by ID
 
-### Key Syntax
+### Key syntax
 
 Supported modifiers:
 
-- `mod` (`cmd` on macOS, `ctrl` on non-macOS)
+- `mod` (`cmd` on macOS, `ctrl` elsewhere)
 - `cmd` / `meta`
 - `ctrl` / `control`
 - `shift`
 - `alt` / `option`
 
-Examples:
+Examples include `mod+j`, `mod+shift+d`, `ctrl+l`, and `cmd+k`.
 
-- `mod+j`
-- `mod+shift+d`
-- `ctrl+l`
-- `cmd+k`
+### `when` conditions
 
-### `when` Conditions
-
-Currently available context keys:
+Available context keys:
 
 - `terminalFocus`
 - `terminalOpen`
 - `previewFocus`
 - `previewOpen`
 
-Supported operators:
-
-- `!` (not)
-- `&&` (and)
-- `||` (or)
-- parentheses: `(` `)`
-
-Examples:
-
-- `"when": "terminalFocus"`
-- `"when": "terminalOpen && !terminalFocus"`
-- `"when": "terminalFocus || terminalOpen"`
+Supported operators are `!`, `&&`, `||`, and parentheses.
 
 Unknown condition keys evaluate to `false`.
 
 ### Precedence
 
-- Rules are evaluated in array order.
-- For a key event, the last rule where both `key` matches and `when` evaluates to `true` wins.
-- That means precedence is across commands, not only within the same command.
+Rules are evaluated in array order. For a key event, the last rule whose `key`
+and `when` both match wins, including across different commands.

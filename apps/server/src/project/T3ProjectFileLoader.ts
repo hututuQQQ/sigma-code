@@ -1,5 +1,5 @@
 /**
- * T3ProjectFileLoader - Effect service that loads the checked-in `t3.json`
+ * T3ProjectFileLoader - Effect service that loads the checked-in `sigma.json`
  * project file from a workspace root.
  *
  * Loading is best-effort: a missing file resolves to `Option.none`, and
@@ -35,12 +35,12 @@ export class T3ProjectFileLoadError extends Schema.TaggedErrorClass<T3ProjectFil
   }
 }
 
-/** Service tag for t3.json project file loading. */
+/** Service tag for sigma.json project file loading. */
 export class T3ProjectFileLoader extends Context.Service<
   T3ProjectFileLoader,
   {
     /**
-     * Load and decode `t3.json` at the workspace root.
+     * Load and decode `sigma.json` at the workspace root.
      *
      * Never fails: missing, unreadable, or invalid files resolve to
      * `Option.none` (invalid files are logged as warnings).

@@ -200,6 +200,11 @@ export class AcpSessionRuntime extends Context.Service<
      */
     readonly cancel: Effect.Effect<void, EffectAcpErrors.AcpError>;
     /**
+     * Closes the active ACP session and releases provider-side resources.
+     * @see https://agentclientprotocol.com/protocol/schema#session/close
+     */
+    readonly close: Effect.Effect<EffectAcpSchema.CloseSessionResponse, EffectAcpErrors.AcpError>;
+    /**
      * Selects the active mode through the negotiated `mode` configuration option.
      * This is a no-op when the requested mode is already active.
      * @see https://agentclientprotocol.com/protocol/schema#session/set_config_option
@@ -541,15 +546,22 @@ export const make = (
         acp.agent.initialize(initializePayload),
       );
 
-      const authenticatePayload = {
-        methodId: options.authMethodId,
-      } satisfies EffectAcpSchema.AuthenticateRequest;
+      // Authentication is optional in ACP v1. Agents such as Sigma Runtime
+      // omit `authMethods` because their local process owns authentication.
+      // Only send `authenticate` when the initialized agent advertises at
+      // least one method; calling an unregistered method would otherwise make
+      // an otherwise healthy local ACP provider fail startup.
+      if ((initializeResult.authMethods?.length ?? 0) > 0) {
+        const authenticatePayload = {
+          methodId: options.authMethodId,
+        } satisfies EffectAcpSchema.AuthenticateRequest;
 
-      yield* runLoggedRequest(
-        "authenticate",
-        authenticatePayload,
-        acp.agent.authenticate(authenticatePayload),
-      );
+        yield* runLoggedRequest(
+          "authenticate",
+          authenticatePayload,
+          acp.agent.authenticate(authenticatePayload),
+        );
+      }
 
       let sessionId: string;
       let sessionSetupResult:
@@ -770,6 +782,18 @@ export const make = (
               .pipe(Effect.ignore, Effect.forkIn(runtimeScope));
           }),
         ),
+      ),
+      close: getStartedState.pipe(
+        Effect.flatMap((started) => {
+          const requestPayload = {
+            sessionId: started.sessionId,
+          } satisfies EffectAcpSchema.CloseSessionRequest;
+          return runLoggedRequest(
+            "session/close",
+            requestPayload,
+            acp.agent.closeSession(requestPayload),
+          );
+        }),
       ),
       setMode: (modeId) =>
         Ref.get(modeStateRef).pipe(

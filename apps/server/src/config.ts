@@ -99,10 +99,8 @@ export const deriveServerPaths = Effect.fn(function* (
   options: DeriveServerPathsOptions = {},
 ): Effect.fn.Return<ServerDerivedPaths, never, Path.Path> {
   const { join } = yield* Path.Path;
-  const stateDir = join(
-    baseDir,
-    devUrl !== undefined && !options.baseDirIsExplicit ? "dev" : "userdata",
-  );
+  const stateDir =
+    devUrl !== undefined && !options.baseDirIsExplicit ? join(baseDir, "dev") : baseDir;
   const dbPath = join(stateDir, "state.sqlite");
   const attachmentsDir = join(stateDir, "attachments");
   const logsDir = join(stateDir, "logs");
@@ -174,7 +172,7 @@ const makeTest = Effect.fn("ServerConfig.makeTest")(function* (
     otlpTracesUrl: undefined,
     otlpMetricsUrl: undefined,
     otlpExportIntervalMs: 10_000,
-    otlpServiceName: "t3-server",
+    otlpServiceName: "sigma-code-server",
     cwd,
     baseDir,
     ...derivedPaths,

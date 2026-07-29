@@ -16,6 +16,7 @@ import {
   resolveWebIconOverrides,
 } from "../../../scripts/lib/brand-assets.ts";
 import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
+import { DISTRIBUTION_LEGAL_RESOURCES } from "../../../scripts/lib/distribution-legal-resources.ts";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -31,7 +32,8 @@ import {
 
 interface PackageJson {
   name: string;
-  repository: {
+  private: true;
+  repository?: {
     type: string;
     url: string;
     directory: string;
@@ -172,6 +174,16 @@ const buildCmd = Command.make(
       } else {
         yield* Effect.logWarning("[cli] Web dist not found — skipping client bundle.");
       }
+
+      const legalTarget = path.join(serverDir, "dist/legal");
+      yield* fs.makeDirectory(legalTarget, { recursive: true });
+      for (const legalResource of DISTRIBUTION_LEGAL_RESOURCES) {
+        yield* fs.copyFile(
+          path.join(repoRoot, legalResource.sourceRelativePath),
+          path.join(legalTarget, legalResource.targetFileName),
+        );
+      }
+      yield* Effect.log("[cli] Bundled downstream license and third-party notices");
     }),
 ).pipe(Command.withDescription("Build the server package (tsdown + bundle web client)."));
 
@@ -190,7 +202,7 @@ const createVpPmPublishArgs = (config: PublishCommandConfig): ReadonlyArray<stri
   const args = [
     "publish",
     "--filter",
-    "t3",
+    serverPackageJson.name,
     "--access",
     config.access,
     "--tag",
@@ -239,7 +251,7 @@ const publishCmd = Command.make(
           const workspaceOverrides = workspaceConfig.overrides ?? {};
           const pkg: PackageJson = {
             name: serverPackageJson.name,
-            repository: serverPackageJson.repository,
+            private: true,
             bin: serverPackageJson.bin,
             type: serverPackageJson.type,
             version,
@@ -304,7 +316,7 @@ const publishCmd = Command.make(
 // ---------------------------------------------------------------------------
 
 const cli = Command.make("cli").pipe(
-  Command.withDescription("T3 server build & publish CLI."),
+  Command.withDescription("Sigma Code server build & publish CLI."),
   Command.withSubcommands([buildCmd, publishCmd]),
 );
 

@@ -13,9 +13,8 @@ const createFixtureDatabase = Effect.fn("createSqliteStateFixtureDatabase")(func
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const stateDir = path.join(baseDir, "userdata");
-  const databasePath = path.join(stateDir, "state.sqlite");
-  yield* fs.makeDirectory(stateDir, { recursive: true });
+  const databasePath = path.join(baseDir, "state.sqlite");
+  yield* fs.makeDirectory(baseDir, { recursive: true });
   yield* Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`CREATE TABLE fixtures (id INTEGER PRIMARY KEY, label TEXT NOT NULL)`;
@@ -87,7 +86,10 @@ it.layer(NodeServices.layer)("t3-sqlite-state", (it) => {
       });
       assert.equal(mutation.operation, "exec");
       if (mutation.operation === "exec") {
-        assert.equal((yield* fs.stat(mutation.backup)).mode & 0o777, 0o600);
+        const backup = yield* fs.stat(mutation.backup);
+        if (process.platform !== "win32") {
+          assert.equal(backup.mode & 0o777, 0o600);
+        }
       }
 
       const error = yield* runSqliteState(
@@ -100,20 +102,22 @@ it.layer(NodeServices.layer)("t3-sqlite-state", (it) => {
       ).pipe(Effect.flip);
       assert.equal(error._tag, "SqliteStateSharedHomeMutationError");
 
-      const aliasParent = yield* fs.makeTempDirectoryScoped({
-        prefix: "t3-sqlite-state-alias-",
-      });
-      const aliasBaseDir = path.join(aliasParent, "shared-home-alias");
-      yield* fs.symlink(baseDir, aliasBaseDir);
-      const aliasError = yield* runSqliteState(
-        {
-          operation: "exec",
-          baseDir: aliasBaseDir,
-          sql: "DELETE FROM fixtures",
-        },
-        { sharedHome: baseDir },
-      ).pipe(Effect.flip);
-      assert.equal(aliasError._tag, "SqliteStateSharedHomeMutationError");
+      if (process.platform !== "win32") {
+        const aliasParent = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-sqlite-state-alias-",
+        });
+        const aliasBaseDir = path.join(aliasParent, "shared-home-alias");
+        yield* fs.symlink(baseDir, aliasBaseDir);
+        const aliasError = yield* runSqliteState(
+          {
+            operation: "exec",
+            baseDir: aliasBaseDir,
+            sql: "DELETE FROM fixtures",
+          },
+          { sharedHome: baseDir },
+        ).pipe(Effect.flip);
+        assert.equal(aliasError._tag, "SqliteStateSharedHomeMutationError");
+      }
     }),
   );
 });

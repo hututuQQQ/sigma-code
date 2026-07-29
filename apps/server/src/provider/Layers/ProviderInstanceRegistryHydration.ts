@@ -30,8 +30,8 @@
  * On layer build we:
  *   1. Read the current `ServerSettings` once and use it to seed the
  *      registry's initial state via `ProviderInstanceRegistryMutableLayer`.
- *   2. Fork a daemon fiber (lifetime tied to the layer's scope) that
- *      subscribes to `ServerSettingsService.streamChanges` and calls
+ *   2. Acquire the settings change subscription, then fork a daemon fiber
+ *      (lifetime tied to the layer's scope) that calls
  *      `ProviderInstanceRegistryMutator.reconcile` on every emission.
  *
  * Failures inside the watcher are logged and swallowed so a single bad
@@ -118,7 +118,14 @@ const SettingsWatcherLive = Layer.effectDiscard(
   Effect.gen(function* () {
     const mutator = yield* ProviderInstanceRegistryMutator;
     const serverSettings = yield* ServerSettingsService;
-    yield* serverSettings.streamChanges.pipe(
+
+    // Acquire the PubSub-backed stream before forking the consumer so a
+    // settings update cannot land between fiber scheduling and subscription.
+    const changes =
+      serverSettings.acquireChanges === undefined
+        ? serverSettings.streamChanges
+        : yield* serverSettings.acquireChanges;
+    yield* changes.pipe(
       Stream.runForEach((next) =>
         mutator
           .reconcile(deriveProviderInstanceConfigMap(next))

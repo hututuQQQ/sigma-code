@@ -1,7 +1,7 @@
-# T3 Code Mobile
+# Sigma Code Mobile
 
 > [!WARNING]
-> T3 Code Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
+> Sigma Code Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
 
 ## Quickstart
 
@@ -10,13 +10,13 @@
 
 This app has three variants:
 
-- `development`: Expo dev client, installable side-by-side as `T3 Code Dev`
-- `preview`: persistent internal preview build, installable side-by-side as `T3 Code Preview`
-- `production`: store/release build as `T3 Code`
+- `development`: Expo dev client, installable side-by-side as `Sigma Code Dev`
+- `preview`: persistent internal preview build, installable side-by-side as `Sigma Code Preview`
+- `production`: store/release build as `Sigma Code`
 
 Run commands from `apps/mobile`.
 
-T3 Connect is optional and disabled in a fresh clone. Public configuration belongs in the
+Sigma Connect is optional and disabled in a fresh clone. Public configuration belongs in the
 repository-root `.env` or `.env.local`, not an `apps/mobile/.env` file. See
 [`../../.env.example`](../../.env.example).
 
@@ -39,8 +39,8 @@ reduced-capability local build. Personal Team builds omit the widget and share e
 entitlement, and native Sign in with Apple entitlement; builds without this opt-in are unchanged.
 
 ```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code.dev \
+SIGMACODE_IOS_PERSONAL_TEAM=1 \
+SIGMACODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.sigmacode.dev \
 vp run ios:dev
 ```
 
@@ -53,8 +53,8 @@ vp run ios:release
 The Personal Team equivalent also needs a unique bundle identifier:
 
 ```bash
-T3CODE_IOS_PERSONAL_TEAM=1 \
-T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code \
+SIGMACODE_IOS_PERSONAL_TEAM=1 \
+SIGMACODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.sigmacode \
 vp run ios:release
 ```
 
@@ -89,34 +89,11 @@ The native lint task runs SwiftLint for Swift plus ktlint and detekt for Kotlin.
 
 ## EAS Builds
 
-CI uses Expo fingerprinting with the `preview:dev` profile to reuse an existing compatible build when possible, or start a new internal EAS build when native runtime inputs change. Production and default local builds continue to use the `appVersion` runtime policy.
+EAS builds, store submission, signing, and OTA updates are disabled until Sigma
+Code owns and configures the corresponding Expo project and store records. The
+upstream workflow definitions are retained under `.github/workflows-disabled`
+for reference and cannot run.
 
-For preview or production EAS environments, set `T3CODE_CLERK_PUBLISHABLE_KEY`,
-`T3CODE_CLERK_JWT_TEMPLATE`, and `T3CODE_RELAY_URL`
-as EAS environment variables. Expo config maps the canonical values into the mobile build.
-
-Create a PR preview dev-client build manually:
-
-```bash
-vp run eas:ios:preview:dev
-```
-
-Create a cloud dev-client build:
-
-```bash
-vp run eas:ios:dev
-```
-
-Create a persistent preview build:
-
-```bash
-vp run eas:ios:preview
-```
-
-Android equivalents:
-
-```bash
-vp run eas:android:dev
-vp run eas:android:preview:dev
-vp run eas:android:preview
-```
+Local native builds use the embedded JavaScript bundle. If Sigma Connect is
+configured later, use only canonical `SIGMACODE_*` variables from
+`.env.example`; never copy T3 Clerk, relay, EAS, signing, or store credentials.

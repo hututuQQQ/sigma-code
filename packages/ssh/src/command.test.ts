@@ -14,7 +14,7 @@ import {
   baseSshArgs,
   getLastNonEmptyOutputLine,
   parseSshResolveOutput,
-  resolveRemoteT3CliPackageSpec,
+  resolveRemoteSigmaCliPackageSpec,
   runSshCommand,
 } from "./command.ts";
 import { SshCommandError } from "./errors.ts";
@@ -99,37 +99,39 @@ describe("ssh command", () => {
     }),
   );
 
-  it.effect("resolves the remote t3 package spec from the desktop release channel", () =>
+  it.effect("uses only an explicit stable Sigma server package for remote installation", () =>
     Effect.sync(() => {
       assert.equal(
-        resolveRemoteT3CliPackageSpec({
+        resolveRemoteSigmaCliPackageSpec({
+          appVersion: "0.0.17",
+          updateChannel: "latest",
+          packageName: "@sigma/code",
+        }),
+        "@sigma/code@0.0.17",
+      );
+      assert.equal(
+        resolveRemoteSigmaCliPackageSpec({
           appVersion: "0.0.17",
           updateChannel: "latest",
         }),
-        "t3@0.0.17",
+        undefined,
       );
       assert.equal(
-        resolveRemoteT3CliPackageSpec({
+        resolveRemoteSigmaCliPackageSpec({
           appVersion: "0.0.17-nightly.20260415.44",
           updateChannel: "nightly",
+          packageName: "@sigma/code",
         }),
-        "t3@0.0.17-nightly.20260415.44",
+        undefined,
       );
       assert.equal(
-        resolveRemoteT3CliPackageSpec({
+        resolveRemoteSigmaCliPackageSpec({
           appVersion: "0.0.0-dev",
           updateChannel: "nightly",
           isDevelopment: true,
+          packageName: "@sigma/code",
         }),
-        "t3@nightly",
-      );
-      assert.equal(
-        resolveRemoteT3CliPackageSpec({
-          appVersion: "0.0.0-dev",
-          updateChannel: "latest",
-          isDevelopment: true,
-        }),
-        "t3@nightly",
+        undefined,
       );
     }),
   );

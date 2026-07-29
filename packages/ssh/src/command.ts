@@ -14,7 +14,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { buildSshChildEnvironment, type SshAuthOptions } from "./auth.ts";
 import { SshCommandError, SshInvalidTargetError } from "./errors.ts";
 
-const PUBLISHABLE_T3_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u;
+const PUBLISHABLE_SIGMA_VERSION_PATTERN = /^\d+\.\d+\.\d+$/u;
+const NPM_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/u;
 const DEFAULT_SSH_COMMAND_TIMEOUT_MS = 60_000;
 const MAX_SSH_ERROR_OUTPUT_LENGTH = 4_000;
 
@@ -364,19 +365,21 @@ export const resolveSshTarget = Effect.fn("ssh/command.resolveSshTarget")(functi
   );
 });
 
-export function resolveRemoteT3CliPackageSpec(input: {
+export function resolveRemoteSigmaCliPackageSpec(input: {
   readonly appVersion: string;
   readonly updateChannel: DesktopUpdateChannel;
   readonly isDevelopment?: boolean;
-}): string {
+  readonly packageName?: string;
+}): string | undefined {
   const appVersion = input.appVersion.trim();
-  if (!input.isDevelopment && PUBLISHABLE_T3_VERSION_PATTERN.test(appVersion)) {
-    return `t3@${appVersion}`;
+  const packageName = input.packageName?.trim() ?? "";
+  if (
+    input.isDevelopment ||
+    input.updateChannel !== "latest" ||
+    !PUBLISHABLE_SIGMA_VERSION_PATTERN.test(appVersion) ||
+    !NPM_PACKAGE_NAME_PATTERN.test(packageName)
+  ) {
+    return undefined;
   }
-
-  if (input.isDevelopment) {
-    return "t3@nightly";
-  }
-
-  return input.updateChannel === "nightly" ? "t3@nightly" : "t3@latest";
+  return `${packageName}@${appVersion}`;
 }

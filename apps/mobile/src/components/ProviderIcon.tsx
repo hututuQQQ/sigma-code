@@ -1,5 +1,8 @@
+import { Image } from "expo-image";
 import { useColorScheme } from "react-native";
 import { Path, Svg } from "react-native-svg";
+
+import { resolveProviderIconKind } from "./providerIconKind";
 
 type ProviderIconProps = {
   readonly provider: string | null | undefined;
@@ -9,8 +12,20 @@ type ProviderIconProps = {
 export function ProviderIcon(props: ProviderIconProps) {
   const isDarkMode = useColorScheme() === "dark";
   const size = props.size ?? 16;
+  const kind = resolveProviderIconKind(props.provider);
 
-  if (props.provider === "claudeAgent") {
+  if (kind === "sigma") {
+    return (
+      <Image
+        source={require("../../assets/android-icon-mark.png")}
+        accessibilityLabel="Sigma"
+        contentFit="contain"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+
+  if (kind === "claude") {
     return (
       <Svg width={size} height={size} viewBox="0 0 256 257" fill="none">
         <Path

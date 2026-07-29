@@ -375,9 +375,12 @@ function AboutVersionSection() {
               value={selectedHostedAppChannel}
               onValueChange={(value) => {
                 if (value === selectedHostedAppChannel) return;
-                window.location.assign(
-                  buildHostedChannelSelectionUrl({ channel: value as HostedAppChannel }),
-                );
+                const hostedChannelUrl = buildHostedChannelSelectionUrl({
+                  channel: value as HostedAppChannel,
+                });
+                if (hostedChannelUrl) {
+                  window.location.assign(hostedChannelUrl);
+                }
               }}
             >
               <SelectTrigger className="w-full sm:w-40" aria-label="Update track">
@@ -543,7 +546,7 @@ export function AppearanceSettingsPanel() {
       <SettingsSection title="Appearance">
         <SettingsRow
           title="Theme"
-          description="Choose how T3 Code looks across the app."
+          description="Choose how Sigma Code looks across the app."
           resetAction={
             theme !== "system" ? (
               <SettingResetButton label="theme" onClick={() => setTheme("system")} />

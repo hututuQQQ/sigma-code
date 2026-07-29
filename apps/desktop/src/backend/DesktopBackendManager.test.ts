@@ -265,15 +265,15 @@ describe("DesktopBackendManager", () => {
         yield* Deferred.await(firstRequest);
 
         assert.equal(readyCount, 0);
-        assert.deepEqual(requestUrls, ["http://127.0.0.1:3773/.well-known/t3/environment"]);
+        assert.deepEqual(requestUrls, ["http://127.0.0.1:3773/.well-known/sigmacode/environment"]);
 
         yield* TestClock.adjust(Duration.millis(100));
         yield* Queue.take(exited);
 
         assert.equal(readyCount, 1);
         assert.deepEqual(requestUrls, [
-          "http://127.0.0.1:3773/.well-known/t3/environment",
-          "http://127.0.0.1:3773/.well-known/t3/environment",
+          "http://127.0.0.1:3773/.well-known/sigmacode/environment",
+          "http://127.0.0.1:3773/.well-known/sigmacode/environment",
         ]);
       }).pipe(Effect.provide(TestClock.layer())),
     ),
