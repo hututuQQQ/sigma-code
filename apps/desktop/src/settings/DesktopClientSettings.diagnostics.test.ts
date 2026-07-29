@@ -32,7 +32,7 @@ function makeLayer(fileSystemLayer: Layer.Layer<FileSystem.FileSystem>) {
     runningUnderArm64Translation: false,
   }).pipe(
     Layer.provide(
-      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
+      Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ SIGMACODE_HOME: baseDir })),
     ),
   );
 
@@ -83,7 +83,7 @@ describe("DesktopClientSettings diagnostics", () => {
       _tag: "PermissionDenied",
       module: "FileSystem",
       method: "readFileString",
-      pathOrDescriptor: `${baseDir}/userdata/client-settings.json`,
+      pathOrDescriptor: `${baseDir}/client-settings.json`,
     });
 
     return Effect.gen(function* () {

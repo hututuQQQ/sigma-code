@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
 import { assert, it } from "@effect/vitest";
 import { PNG } from "pngjs";
 
@@ -147,8 +149,14 @@ it("expands both appearances into independent upload-ready directories", () => {
       directory: showcaseCaptureDirectory("/captures", capture),
     })),
     [
-      { appearance: "light", directory: "/captures/apple/iphone-test/light" },
-      { appearance: "dark", directory: "/captures/apple/iphone-test/dark" },
+      {
+        appearance: "light",
+        directory: NodePath.join("/captures", "apple/iphone-test", "light"),
+      },
+      {
+        appearance: "dark",
+        directory: NodePath.join("/captures", "apple/iphone-test", "dark"),
+      },
     ],
   );
 });
@@ -244,22 +252,22 @@ it("selects a reachable LAN IPv4 address", () => {
 });
 
 it("maps capture scenes to the real application routes", () => {
-  assert.equal(showcaseSceneUrl("threads", "environment-1"), "t3code-dev://");
+  assert.equal(showcaseSceneUrl("threads", "environment-1"), "sigmacode-dev://");
   assert.equal(
     showcaseSceneUrl("environments", "environment-1"),
-    "t3code-dev://settings/environments",
+    "sigmacode-dev://settings/environments",
   );
   assert.equal(
     showcaseSceneUrl("thread", "environment-1"),
-    "t3code-dev://threads/environment-1/remote-command-center",
+    "sigmacode-dev://threads/environment-1/remote-command-center",
   );
   assert.equal(
     showcaseSceneUrl("terminal", "environment-1"),
-    "t3code-dev://threads/environment-1/remote-command-center/terminal?terminalId=term-1",
+    "sigmacode-dev://threads/environment-1/remote-command-center/terminal?terminalId=term-1",
   );
   assert.equal(
     showcaseSceneUrl("review", "environment-1"),
-    "t3code-dev://threads/environment-1/remote-command-center/review",
+    "sigmacode-dev://threads/environment-1/remote-command-center/review",
   );
 });
 

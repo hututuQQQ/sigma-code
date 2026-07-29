@@ -303,7 +303,7 @@ const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
 export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   return {
     clientInfo: {
-      name: "t3code_desktop",
+      name: "sigmacode_desktop",
       title: "Sigma Code Desktop",
       version: packageJson.version,
     },
@@ -365,7 +365,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
 
   const initialize = yield* client.request("initialize", {
     clientInfo: {
-      name: "t3code_desktop",
+      name: "sigmacode_desktop",
       title: "Sigma Code Desktop",
       version: "0.1.0",
     },

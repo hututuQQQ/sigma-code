@@ -131,6 +131,13 @@ export class ServerSettingsService extends Context.Service<
 
     /** Stream of settings change events. */
     readonly streamChanges: Stream.Stream<ServerSettings>;
+
+    /**
+     * Acquire the underlying change subscription before starting a consumer
+     * fiber. Consumers that cannot tolerate a startup race should prefer this
+     * over `streamChanges`.
+     */
+    readonly acquireChanges?: Effect.Effect<Stream.Stream<ServerSettings>, never, Scope.Scope>;
   }
 >()("t3/serverSettings/ServerSettingsService") {
   /** @deprecated Import and use `layerTest` from this module. */
@@ -537,6 +544,23 @@ const make = Effect.gen(function* () {
     yield* Deferred.succeed(startedDeferred, undefined).pipe(Effect.orDie);
   });
 
+  const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
+    changes.pipe(
+      Stream.mapEffect((settings) =>
+        materializeProviderEnvironmentSecrets(settings).pipe(
+          Effect.catch((error: ServerSettingsError) =>
+            Effect.logWarning("failed to materialize provider environment secrets", {
+              operation: error.operation,
+              providerInstanceId: error.providerInstanceId,
+              environmentVariable: error.environmentVariable,
+              cause: error.cause,
+            }).pipe(Effect.as(settings)),
+          ),
+        ),
+      ),
+      Stream.map(resolveTextGenerationProvider),
+    );
+
   return {
     start,
     ready: Deferred.await(startedDeferred),
@@ -561,22 +585,11 @@ const make = Effect.gen(function* () {
         }),
       ),
     get streamChanges() {
-      return Stream.fromPubSub(changesPubSub).pipe(
-        Stream.mapEffect((settings) =>
-          materializeProviderEnvironmentSecrets(settings).pipe(
-            Effect.catch((error: ServerSettingsError) =>
-              Effect.logWarning("failed to materialize provider environment secrets", {
-                operation: error.operation,
-                providerInstanceId: error.providerInstanceId,
-                environmentVariable: error.environmentVariable,
-                cause: error.cause,
-              }).pipe(Effect.as(settings)),
-            ),
-          ),
-        ),
-        Stream.map(resolveTextGenerationProvider),
-      );
+      return materializeChanges(Stream.fromPubSub(changesPubSub));
     },
+    acquireChanges: PubSub.subscribe(changesPubSub).pipe(
+      Effect.map((subscription) => materializeChanges(Stream.fromSubscription(subscription))),
+    ),
   } satisfies ServerSettingsService["Service"];
 });
 

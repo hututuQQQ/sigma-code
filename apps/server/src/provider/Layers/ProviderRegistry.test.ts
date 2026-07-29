@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -60,7 +61,7 @@ const disabledCodexSettings: CodexSettings = Schema.decodeSync(CodexSettings)({
   enabled: false,
 });
 
-process.env.T3CODE_CURSOR_ENABLED = "1";
+process.env.SIGMACODE_CURSOR_ENABLED = "1";
 
 // ── Test helpers ────────────────────────────────────────────────────
 
@@ -297,6 +298,9 @@ function makeMutableServerSettingsService(
       get streamChanges() {
         return Stream.fromPubSub(changes);
       },
+      acquireChanges: PubSub.subscribe(changes).pipe(
+        Effect.map((subscription) => Stream.fromSubscription(subscription)),
+      ),
     } satisfies ServerSettingsModule.ServerSettingsService["Service"];
   });
 }
@@ -956,6 +960,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             models: [],
           } satisfies ServerProvider;
           const changes = yield* PubSub.unbounded<ServerProvider>();
+          const changesScope = yield* Scope.make();
+          yield* Effect.addFinalizer(() => Scope.close(changesScope, Exit.void));
+          const changeSubscription = yield* PubSub.subscribe(changes).pipe(
+            Scope.provide(changesScope),
+          );
           const instance = {
             instanceId: cursorInstanceId,
             driverKind: cursorDriver,
@@ -972,7 +981,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               }),
               getSnapshot: Effect.succeed(initialProvider),
               refresh: Effect.succeed(refreshedProvider),
-              streamChanges: Stream.fromPubSub(changes),
+              streamChanges: Stream.fromSubscription(changeSubscription),
             },
             adapter: {} as ProviderInstance["adapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
@@ -1020,11 +1029,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             let cachedProvider = yield* readProviderStatusCache(filePath);
             for (
               let attempt = 0;
-              attempt < 50 && cachedProvider?.checkedAt !== refreshedProvider.checkedAt;
+              attempt < 100 && cachedProvider?.checkedAt !== refreshedProvider.checkedAt;
               attempt += 1
             ) {
-              yield* TestClock.adjust("10 millis");
-              yield* Effect.yieldNow;
+              yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
               cachedProvider = yield* readProviderStatusCache(filePath);
             }
 
@@ -1084,6 +1092,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               message: "Failed to refresh OpenCode models.",
             } satisfies ServerProvider;
             const changes = yield* PubSub.unbounded<ServerProvider>();
+            const changesScope = yield* Scope.make();
+            yield* Effect.addFinalizer(() => Scope.close(changesScope, Exit.void));
+            const changeSubscription = yield* PubSub.subscribe(changes).pipe(
+              Scope.provide(changesScope),
+            );
             const instance = {
               instanceId: openCodeInstanceId,
               driverKind: openCodeDriver,
@@ -1100,7 +1113,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 }),
                 getSnapshot: Effect.succeed(initialProvider),
                 refresh: Effect.succeed(authoritativeProvider),
-                streamChanges: Stream.fromPubSub(changes),
+                streamChanges: Stream.fromSubscription(changeSubscription),
               },
               adapter: {} as ProviderInstance["adapter"],
               textGeneration: {} as ProviderInstance["textGeneration"],
@@ -1145,11 +1158,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               let cachedProvider = yield* readProviderStatusCache(filePath);
               for (
                 let attempt = 0;
-                attempt < 50 && cachedProvider?.checkedAt !== authoritativeProvider.checkedAt;
+                attempt < 100 && cachedProvider?.checkedAt !== authoritativeProvider.checkedAt;
                 attempt += 1
               ) {
-                yield* TestClock.adjust("10 millis");
-                yield* Effect.yieldNow;
+                yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
                 cachedProvider = yield* readProviderStatusCache(filePath);
               }
 
@@ -1158,11 +1170,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               yield* PubSub.publish(changes, failedProvider);
               for (
                 let attempt = 0;
-                attempt < 50 && cachedProvider?.checkedAt !== failedProvider.checkedAt;
+                attempt < 100 && cachedProvider?.checkedAt !== failedProvider.checkedAt;
                 attempt += 1
               ) {
-                yield* TestClock.adjust("10 millis");
-                yield* Effect.yieldNow;
+                yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
                 cachedProvider = yield* readProviderStatusCache(filePath);
               }
 
@@ -1552,6 +1563,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
 
           yield* Effect.gen(function* () {
             const registry = yield* ProviderRegistry.ProviderRegistry;
+            const instanceRegistry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
             // Boot-time probe: the default codex instance is enabled with
             // `firstMissing`, so the real spawner yields ENOENT and the
             // snapshot should be `status: "error"`.
@@ -1572,7 +1584,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             );
             assert.strictEqual(initialCodex?.status, "error");
             assert.strictEqual(initialCodex?.installed, false);
-            assert.deepStrictEqual(spawnedCommands, [firstMissing]);
+            assert.deepStrictEqual(
+              spawnedCommands.filter((command) => command.startsWith("t3code_codex_")),
+              [firstMissing],
+            );
 
             // Drive a settings change. The Hydration layer's
             // `SettingsWatcherLive` consumes this via `streamChanges`,
@@ -1582,11 +1597,16 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             // instanceRegistry.streamChanges, () => syncLiveSources)`
             // fires `syncLiveSources`, which subscribes and launches a fresh
             // background refresh on the rebuilt instance.
+            const instanceChanges = yield* instanceRegistry.subscribeChanges;
             yield* serverSettings.updateSettings({
               providers: {
                 codex: { enabled: true, binaryPath: secondMissing },
               },
             });
+            // Reconcile publishes after the replacement instance is
+            // installed. The subscription was acquired before the update,
+            // so this wait is independent of background fiber scheduling.
+            yield* PubSub.take(instanceChanges);
 
             // Poll until the injected process boundary observes the new
             // executable. This verifies the public settings-to-probe behavior
@@ -1609,7 +1629,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
             });
 
             const reprobedCodex = refreshed.find((provider) => provider.instanceId === "codex");
-            assert.deepStrictEqual(spawnedCommands, [firstMissing, secondMissing]);
+            assert.deepStrictEqual(
+              spawnedCommands.filter((command) => command.startsWith("t3code_codex_")),
+              [firstMissing, secondMissing],
+            );
             assert.strictEqual(reprobedCodex?.status, "error");
             assert.strictEqual(reprobedCodex?.installed, false);
           }).pipe(Effect.provide(runtimeServices));
@@ -1764,6 +1787,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 "cursor",
                 "grok",
                 "opencode",
+                "sigma",
               ]);
               assert.strictEqual(cursorProvider?.enabled, false);
               assert.strictEqual(cursorProvider?.status, "disabled");
@@ -2126,7 +2150,6 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
       );
 
       it.effect("runs Claude status probes with the configured CLAUDE_CONFIG_DIR", () => {
-        const claudeConfigDir = "/tmp/t3code-claude-home";
         const recorded = recordingMockSpawnerLayer((args) => {
           const joined = args.join(" ");
           if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
@@ -2140,6 +2163,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         });
 
         return Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const claudeConfigDir = path.resolve("/tmp/sigma-code-claude-home");
           const status = yield* checkClaudeProviderStatus(
             {
               ...defaultClaudeSettings,

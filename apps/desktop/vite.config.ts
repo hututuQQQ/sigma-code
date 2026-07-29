@@ -15,13 +15,13 @@ export default defineConfig({
     tasks: {
       build: {
         command: "node scripts/build-preview-annotation-css.mjs && vp pack",
-        dependsOn: ["sigma-code#build"],
+        dependsOn: ["t3#build"],
         cache: false,
       },
       dev: {
         command:
           "node scripts/build-preview-annotation-css.mjs && cross-env SIGMACODE_DESKTOP_DEV=1 vp pack --watch",
-        dependsOn: ["sigma-code#build"],
+        dependsOn: ["t3#build"],
         cache: false,
       },
       "dev:bundle": {
@@ -30,7 +30,7 @@ export default defineConfig({
       },
       "dev:electron": {
         command: "node scripts/dev-electron.mjs",
-        dependsOn: ["sigma-code#build"],
+        dependsOn: ["t3#build"],
         cache: false,
       },
     },

@@ -141,7 +141,7 @@ describe("AgentActivity widget layout", () => {
     expect(banner).toContain("1 needs attention");
   });
 
-  it("uses the attention tint for the compact presentations when a row needs input", () => {
+  it("uses the Sigma mark and attention tint for compact presentations", () => {
     const layout = AgentActivity(
       {
         ...props,
@@ -153,8 +153,9 @@ describe("AgentActivity widget layout", () => {
       },
       environment as never,
     );
-    expect(JSON.stringify(layout.compactLeading)).toContain("#a5b4fc"); // indigo-300
+    expect(JSON.stringify(layout.compactLeading)).toContain("SigmaMark");
     expect(JSON.stringify(layout.compactTrailing)).toContain("Input");
+    expect(JSON.stringify(layout.compactTrailing)).toContain("#a5b4fc"); // indigo-300
     expect(JSON.stringify(layout.minimal)).toContain("#a5b4fc");
   });
 
@@ -176,14 +177,14 @@ describe("AgentActivity widget layout", () => {
       environment as never,
     );
     expect(JSON.stringify(layout.banner)).toContain(
-      '"widgetURL":"t3code://threads/env-1/thread-2"',
+      '"widgetURL":"sigmacode://threads/env-1/thread-2"',
     );
   });
 
   it("deep links the banner to the first row when nothing needs attention", () => {
     const layout = AgentActivity({ ...props, activities: [makeRow({})] }, environment as never);
     expect(JSON.stringify(layout.banner)).toContain(
-      '"widgetURL":"t3code://threads/env-1/thread-1"',
+      '"widgetURL":"sigmacode://threads/env-1/thread-1"',
     );
   });
 

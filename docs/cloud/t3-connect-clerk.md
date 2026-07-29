@@ -1,4 +1,9 @@
-# T3 Connect Clerk Setup
+# Upstream-only reference: T3 Connect Clerk setup
+
+> This document is retained for reviewing upstream changes. Sigma Code does not
+> ship these T3 Clerk, relay, hosted-app, signing, or entitlement values. Cloud
+> UI and relay deployment are disabled until equivalent Sigma-owned
+> infrastructure is committed and tested.
 
 T3 Connect uses one Clerk application for web, desktop, and mobile authentication. The relay accepts
 Clerk JWTs only when they are generated from the `t3-relay` template with the shared

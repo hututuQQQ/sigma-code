@@ -111,7 +111,7 @@ export function CloudEnvironmentConnectRows({
     const message =
       cause instanceof Error ? cause.message : "Could not connect the Sigma Connect environment.";
     const traceId = findErrorTraceId(cause);
-    console.error("[t3-connect] Could not connect environment", { message, traceId, cause });
+    console.error("[sigma-connect] Could not connect environment", { message, traceId, cause });
     toastManager.add({
       type: "error",
       title: "Could not connect environment",

@@ -104,7 +104,7 @@ describe("versionSkew", () => {
       "The Desktop server is run by the Sigma Code desktop app on its machine — update the desktop app there to sync them.",
     );
     expect(serverUpdateGuidance(null, "Local server")).toBe(
-      "Relaunch the Local server with the copied command to sync them.",
+      "Install the matching Sigma Code version on the Local server, then relaunch it.",
     );
   });
 });

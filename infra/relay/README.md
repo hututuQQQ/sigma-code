@@ -1,13 +1,16 @@
-# T3 Connect Relay
+# Sigma Code relay (disabled)
 
 > [!WARNING]
-> T3 Connect is currently in private beta. Join the waitlist in the app under Settings > T3 Connect.
+> This directory retains the upstream relay design for review. Deployment and
+> destruction fail closed until Sigma-owned Clerk, Cloudflare, DNS, telemetry,
+> signing, and release configuration is committed. Do not use T3 credentials or
+> services.
 
-The relay is the hosted control plane for T3 Connect. It helps clients discover and connect to
+The retained relay is the control-plane design for Sigma Connect. It helps clients discover and connect to
 remote environments, manages the cloud-side records needed for those connections, and delivers
 optional mobile notifications and Live Activities.
 
-The relay is intentionally not in the hot path for normal T3 Code traffic. After a client connects,
+The relay is intentionally not in the hot path for normal Sigma Code traffic. After a client connects,
 regular API and WebSocket traffic goes directly between that client and the selected environment.
 See the [T3 Connect architecture overview](../../docs/cloud/t3-code-connect-auth-flow.html) for the larger system
 design.
@@ -16,7 +19,7 @@ design.
 
 The relay currently owns:
 
-- Linking T3 Code environments to a cloud account.
+- Linking Sigma Code environments to a cloud account.
 - Provisioning and tracking managed environment endpoints.
 - Issuing short-lived credentials used to connect clients to linked environments.
 - Listing linked environments and registered mobile devices for an account.

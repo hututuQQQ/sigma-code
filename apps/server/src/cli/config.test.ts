@@ -1,4 +1,7 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { assert, expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -14,6 +17,7 @@ import {
   type DesktopBackendBootstrap as DesktopBackendBootstrapValue,
 } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { deriveServerPaths } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
@@ -29,7 +33,7 @@ const makeDesktopBootstrap = (
   mode: "desktop",
   noBrowser: true,
   port: 4888,
-  t3Home: "/tmp/t3-bootstrap-home",
+  t3Home: NodePath.join(NodeOS.tmpdir(), "sigmacode-bootstrap-home"),
   host: "127.0.0.1",
   desktopBootstrapToken: "desktop-bootstrap-token",
   tailscaleServeEnabled: false,
@@ -47,7 +51,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     otlpTracesUrl: undefined,
     otlpMetricsUrl: undefined,
     otlpExportIntervalMs: 10_000,
-    otlpServiceName: "t3-server",
+    otlpServiceName: "sigma-code-server",
     devAllowedOrigins: [],
   } as const;
 
@@ -56,6 +60,11 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
     const encoded = yield* encodeDesktopBootstrap(payload);
     yield* fs.writeFileString(filePath, `${encoded}\n`);
+    if ((yield* HostProcessPlatform) === "win32") {
+      // Windows cannot duplicate an inherited descriptor through /proc, so
+      // readBootstrapEnvelope owns and closes the original descriptor.
+      return NodeFS.openSync(filePath, "r");
+    }
     const { fd } = yield* fs.open(filePath, { flag: "r" });
     return fd;
   });
@@ -90,17 +99,17 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_LOG_LEVEL: "Warn",
-                  T3CODE_MODE: "desktop",
-                  T3CODE_PORT: "4001",
-                  T3CODE_HOST: "0.0.0.0",
-                  T3CODE_HOME: baseDir,
+                  SIGMACODE_LOG_LEVEL: "Warn",
+                  SIGMACODE_MODE: "desktop",
+                  SIGMACODE_PORT: "4001",
+                  SIGMACODE_HOST: "0.0.0.0",
+                  SIGMACODE_HOME: baseDir,
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
-                  T3CODE_DEV_ALLOWED_ORIGINS:
+                  SIGMACODE_DEV_ALLOWED_ORIGINS:
                     "https://host.example.ts.net, https://phone.example.ts.net ",
-                  T3CODE_NO_BROWSER: "true",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-                  T3CODE_LOG_WS_EVENTS: "true",
+                  SIGMACODE_NO_BROWSER: "true",
+                  SIGMACODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
+                  SIGMACODE_LOG_WS_EVENTS: "true",
                 },
               }),
             ),
@@ -129,7 +138,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
       });
-      assert.equal(resolved.stateDir, join(baseDir, "userdata"));
+      assert.equal(resolved.stateDir, baseDir);
     }),
   );
 
@@ -163,15 +172,15 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_LOG_LEVEL: "Warn",
-                  T3CODE_MODE: "desktop",
-                  T3CODE_PORT: "4001",
-                  T3CODE_HOST: "0.0.0.0",
-                  T3CODE_HOME: join(NodeOS.tmpdir(), "ignored-base"),
+                  SIGMACODE_LOG_LEVEL: "Warn",
+                  SIGMACODE_MODE: "desktop",
+                  SIGMACODE_PORT: "4001",
+                  SIGMACODE_HOST: "0.0.0.0",
+                  SIGMACODE_HOME: join(NodeOS.tmpdir(), "ignored-base"),
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
-                  T3CODE_NO_BROWSER: "false",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-                  T3CODE_LOG_WS_EVENTS: "false",
+                  SIGMACODE_NO_BROWSER: "false",
+                  SIGMACODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
+                  SIGMACODE_LOG_WS_EVENTS: "false",
                 },
               }),
             ),
@@ -199,7 +208,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: true,
         tailscaleServePort: 8443,
       });
-      assert.equal(resolved.dbPath, join(baseDir, "userdata", "state.sqlite"));
+      assert.equal(resolved.dbPath, join(baseDir, "state.sqlite"));
     }),
   );
 
@@ -241,10 +250,10 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_BOOTSTRAP_FD: String(fd),
-                  T3CODE_NO_BROWSER: "true",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
-                  T3CODE_LOG_WS_EVENTS: "true",
+                  SIGMACODE_BOOTSTRAP_FD: String(fd),
+                  SIGMACODE_NO_BROWSER: "true",
+                  SIGMACODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
+                  SIGMACODE_LOG_WS_EVENTS: "true",
                 },
               }),
             ),
@@ -278,7 +287,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("uses bootstrap envelope values as fallbacks when flags and env are absent", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = "/tmp/t3-bootstrap-home";
+      const baseDir = join(NodeOS.tmpdir(), "sigmacode-bootstrap-home");
       const fd = yield* openBootstrapFd(
         makeDesktopBootstrap({
           port: 4888,
@@ -316,7 +325,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_BOOTSTRAP_FD: String(fd),
+                  SIGMACODE_BOOTSTRAP_FD: String(fd),
                 },
               }),
             ),
@@ -346,7 +355,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
       });
-      assert.equal(join(baseDir, "userdata"), resolved.stateDir);
+      assert.equal(baseDir, resolved.stateDir);
     }),
   );
 
@@ -407,7 +416,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         makeDesktopBootstrap({
           port: 4888,
           host: "127.0.0.2",
-          t3Home: "/tmp/t3-bootstrap-home",
+          t3Home: join(NodeOS.tmpdir(), "ignored-sigmacode-bootstrap-home"),
           noBrowser: false,
           desktopBootstrapToken: "desktop-token",
           tailscaleServeEnabled: false,
@@ -441,12 +450,12 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_MODE: "web",
-                  T3CODE_BOOTSTRAP_FD: String(fd),
-                  T3CODE_HOME: baseDir,
-                  T3CODE_NO_BROWSER: "true",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
-                  T3CODE_LOG_WS_EVENTS: "true",
+                  SIGMACODE_MODE: "web",
+                  SIGMACODE_BOOTSTRAP_FD: String(fd),
+                  SIGMACODE_HOME: baseDir,
+                  SIGMACODE_NO_BROWSER: "true",
+                  SIGMACODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
+                  SIGMACODE_LOG_WS_EVENTS: "true",
                 },
               }),
             ),
@@ -577,8 +586,8 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  T3CODE_NO_BROWSER: "false",
-                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
+                  SIGMACODE_NO_BROWSER: "false",
+                  SIGMACODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
                 },
               }),
             ),

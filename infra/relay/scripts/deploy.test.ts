@@ -90,18 +90,18 @@ describe("hasDeployChanges", () => {
 describe("reconcileRootEnvRelayUrl", () => {
   it("adds the relay URL to an empty root env file", () => {
     expect(reconcileRootEnvRelayUrl("", "https://relay.example.test")).toBe(
-      "T3CODE_RELAY_URL=https://relay.example.test\n",
+      "SIGMACODE_RELAY_URL=https://relay.example.test\n",
     );
   });
 
   it("preserves unrelated root env entries while replacing a previous relay URL", () => {
     expect(
       reconcileRootEnvRelayUrl(
-        "T3CODE_CLERK_PUBLISHABLE_KEY=pk_test_example\nT3CODE_RELAY_URL=https://old.example.test\n",
+        "SIGMACODE_CLERK_PUBLISHABLE_KEY=pk_test_example\nSIGMACODE_RELAY_URL=https://old.example.test\n",
         "https://relay.example.test",
       ),
     ).toBe(
-      "T3CODE_CLERK_PUBLISHABLE_KEY=pk_test_example\nT3CODE_RELAY_URL=https://relay.example.test\n",
+      "SIGMACODE_CLERK_PUBLISHABLE_KEY=pk_test_example\nSIGMACODE_RELAY_URL=https://relay.example.test\n",
     );
   });
 });
@@ -110,23 +110,23 @@ describe("reconcileRootEnvPublicConfig", () => {
   const config = {
     relayUrl: "https://relay.example.test",
     mobileTracingUrl: "https://api.axiom.co/v1/traces",
-    mobileTracingDataset: "t3-code-mobile-traces-dev",
+    mobileTracingDataset: "sigma-code-mobile-traces-dev",
     mobileTracingToken: "xaat-public-ingest",
     clientTracingUrl: "https://api.axiom.co/v1/traces",
-    clientTracingDataset: "t3-code-relay-client-traces-dev",
+    clientTracingDataset: "sigma-code-relay-client-traces-dev",
     clientTracingToken: "xaat-relay-client-ingest",
   } as const;
 
   it("adds the complete local client config", () => {
     expect(reconcileRootEnvPublicConfig("", config)).toBe(
       [
-        "T3CODE_RELAY_URL=https://relay.example.test",
-        "T3CODE_MOBILE_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "T3CODE_MOBILE_OTLP_TRACES_DATASET=t3-code-mobile-traces-dev",
-        "T3CODE_MOBILE_OTLP_TRACES_TOKEN=xaat-public-ingest",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET=t3-code-relay-client-traces-dev",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=xaat-relay-client-ingest",
+        "SIGMACODE_RELAY_URL=https://relay.example.test",
+        "SIGMACODE_MOBILE_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
+        "SIGMACODE_MOBILE_OTLP_TRACES_DATASET=sigma-code-mobile-traces-dev",
+        "SIGMACODE_MOBILE_OTLP_TRACES_TOKEN=xaat-public-ingest",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_DATASET=sigma-code-relay-client-traces-dev",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=xaat-relay-client-ingest",
         "",
       ].join("\n"),
     );
@@ -136,28 +136,28 @@ describe("reconcileRootEnvPublicConfig", () => {
     expect(
       reconcileRootEnvPublicConfig(
         [
-          "T3CODE_CLERK_PUBLISHABLE_KEY=pk_test_example",
-          "T3CODE_RELAY_URL=https://old.example.test",
-          "T3CODE_MOBILE_OTLP_TRACES_URL=https://old.example.test/v1/traces",
-          "T3CODE_MOBILE_OTLP_TRACES_DATASET=old-dataset",
-          "T3CODE_MOBILE_OTLP_TRACES_TOKEN=old-token",
-          "T3CODE_RELAY_CLIENT_OTLP_TRACES_URL=https://old.example.test/v1/traces",
-          "T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET=old-client-dataset",
-          "T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=old-client-token",
+          "SIGMACODE_CLERK_PUBLISHABLE_KEY=pk_test_example",
+          "SIGMACODE_RELAY_URL=https://old.example.test",
+          "SIGMACODE_MOBILE_OTLP_TRACES_URL=https://old.example.test/v1/traces",
+          "SIGMACODE_MOBILE_OTLP_TRACES_DATASET=old-dataset",
+          "SIGMACODE_MOBILE_OTLP_TRACES_TOKEN=old-token",
+          "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_URL=https://old.example.test/v1/traces",
+          "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_DATASET=old-client-dataset",
+          "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=old-client-token",
           "",
         ].join("\n"),
         config,
       ),
     ).toBe(
       [
-        "T3CODE_CLERK_PUBLISHABLE_KEY=pk_test_example",
-        "T3CODE_RELAY_URL=https://relay.example.test",
-        "T3CODE_MOBILE_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "T3CODE_MOBILE_OTLP_TRACES_DATASET=t3-code-mobile-traces-dev",
-        "T3CODE_MOBILE_OTLP_TRACES_TOKEN=xaat-public-ingest",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET=t3-code-relay-client-traces-dev",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=xaat-relay-client-ingest",
+        "SIGMACODE_CLERK_PUBLISHABLE_KEY=pk_test_example",
+        "SIGMACODE_RELAY_URL=https://relay.example.test",
+        "SIGMACODE_MOBILE_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
+        "SIGMACODE_MOBILE_OTLP_TRACES_DATASET=sigma-code-mobile-traces-dev",
+        "SIGMACODE_MOBILE_OTLP_TRACES_TOKEN=xaat-public-ingest",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_DATASET=sigma-code-relay-client-traces-dev",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=xaat-relay-client-ingest",
         "",
       ].join("\n"),
     );
@@ -190,9 +190,9 @@ describe("serializeRelayClientTracingEnvironment", () => {
       }),
     ).toBe(
       [
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET=relay",
-        "T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=client-token",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_URL=https://api.axiom.co/v1/traces",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_DATASET=relay",
+        "SIGMACODE_RELAY_CLIENT_OTLP_TRACES_TOKEN=client-token",
         "",
       ].join("\n"),
     );
@@ -205,10 +205,14 @@ describe("release workflow tracing config propagation", () => {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const workflowPath = yield* path.fromFileUrl(
+        new URL("../../../.github/workflows-disabled/release.yml", import.meta.url),
+      );
+      const activeWorkflowPath = yield* path.fromFileUrl(
         new URL("../../../.github/workflows/release.yml", import.meta.url),
       );
       const workflow = yield* fileSystem.readFileString(workflowPath);
 
+      expect(yield* fileSystem.exists(activeWorkflowPath)).toBe(false);
       expect(workflow).not.toContain("client_tracing_token:");
       expect(workflow).not.toContain("needs.relay_public_config.outputs.client_tracing_token");
       expect(workflow).toContain('--github-env-file "$RUNNER_TEMP/relay-client-tracing.env"');

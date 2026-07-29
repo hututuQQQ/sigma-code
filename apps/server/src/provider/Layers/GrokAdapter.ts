@@ -692,13 +692,13 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             childProcessSpawner,
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),
-            clientInfo: { name: profile?.clientName ?? "t3-code", version: "0.0.0" },
+            clientInfo: { name: profile?.clientName ?? "sigma-code", version: "0.0.0" },
             ...(mcpSession
               ? {
                   mcpServers: [
                     {
                       type: "http" as const,
-                      name: profile?.mcpServerName ?? "t3-code",
+                      name: profile?.mcpServerName ?? "sigma-code",
                       url: mcpSession.endpoint,
                       headers: [
                         {

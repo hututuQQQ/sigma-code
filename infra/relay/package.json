@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "node -- scripts/deploy.ts",
-    "destroy": "alchemy destroy",
+    "deploy": "node scripts/downstream-disabled.mjs deploy",
+    "destroy": "node scripts/downstream-disabled.mjs destroy",
     "test": "vp test run",
     "typecheck": "tsgo --noEmit"
   },

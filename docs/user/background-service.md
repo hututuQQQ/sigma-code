@@ -1,42 +1,23 @@
-# Running T3 Code in the Background
+# Running Sigma Code in the background
 
-On a Linux host, T3 Code can run as a background service for your user. It starts when the machine
-boots and keeps running after you log out.
-
-## Manage the Service
-
-Install it with the latest T3 Code release:
+On Linux with systemd, an installed Sigma Code CLI can run as a per-user
+background service. The service uses the `sigmacode.service` unit and
+`~/.sigma/code`; it does not reuse T3 Code's service or state.
 
 ```sh
-npx t3@latest service install
+sigma-code service install
+sigma-code service status
+sigma-code service update
+sigma-code service uninstall
 ```
 
-Check whether it is installed:
+`service update` uses the exact locally installed Sigma Code CLI. It does not
+download `t3` or another package implicitly.
 
-```sh
-npx t3@latest service status
-```
+Automatic installation of a matching remote server is fail-closed. Maintainers
+must first publish a Sigma-owned package and set
+`SIGMACODE_SERVER_NPM_PACKAGE` to that package name. Without this setting,
+Sigma Code asks the operator to install the local Sigma Code CLI on the host.
 
-Update or repair it:
-
-```sh
-npx t3@latest service update
-```
-
-Stop it and remove it from startup:
-
-```sh
-npx t3@latest service uninstall
-```
-
-Updating restarts T3 Code briefly. Let active agent work and terminal commands finish first.
-
-## Using It with T3 Connect
-
-T3 Connect may offer to install the service during setup so the host stays reachable after you log
-out. This is only an onboarding shortcut: the service and T3 Connect are managed separately.
-
-Signing out of T3 Connect does not remove the service. Use `t3 service uninstall` when you no longer
-want T3 Code to start in the background.
-
-The background service currently requires Linux with systemd.
+Updating or removing the service briefly stops the server. Let active agent and
+terminal work finish first.
