@@ -1446,7 +1446,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     asarUnpack: [...DESKTOP_ASAR_UNPACK, "apps/server/dist/**", "**/node_modules/**"],
     extraResources: [
       { from: "legal", to: "legal" },
-      { from: "sigma-runtime", to: "sigma-runtime" },
+      // electron-builder deliberately skips a FileSet whose source root is
+      // named `node_modules`. Match from the staged app root so Sigma
+      // Runtime's own node_modules remains a nested directory and is copied
+      // intact into resources/sigma-runtime.
+      { from: ".", to: ".", filter: ["sigma-runtime/**/*"] },
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
