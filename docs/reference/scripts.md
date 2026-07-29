@@ -6,7 +6,9 @@
 - `vp run dev:web` starts only the Vite web client.
 - `vp run dev:desktop` starts the desktop and web development clients.
 - `vp run build` builds application and package workspaces.
-- `vp run dist:desktop:win:x64` creates an unsigned Windows x64 installer.
+- `vp run dist:desktop:win:x64` creates an unsigned Windows x64 installer and
+  requires `SIGMACODE_DESKTOP_SIGMA_RUNTIME` to point at a verified portable
+  Sigma Runtime bundle.
 - `vp run icons:check` verifies generated Sigma icon assets.
 - `node apps/server/scripts/t3-sqlite-state.ts ...` inspects an explicitly
   selected Sigma Code SQLite database and creates a private backup before

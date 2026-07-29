@@ -22,7 +22,11 @@ import {
   spawnAndCollect,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
-import { makeSigmaAcpRuntime, sigmaModelsFromSessionSetup } from "../acp/SigmaAcpSupport.ts";
+import {
+  makeSigmaAcpRuntime,
+  resolveSigmaBinaryPath,
+  sigmaModelsFromSessionSetup,
+} from "../acp/SigmaAcpSupport.ts";
 
 const SIGMA_PRESENTATION = {
   displayName: "Sigma",
@@ -72,7 +76,7 @@ export const buildInitialSigmaProviderSnapshot = Effect.fn("buildInitialSigmaPro
 
 const runSigmaVersionCommand = (settings: SigmaSettings, environment: NodeJS.ProcessEnv) =>
   Effect.gen(function* () {
-    const command = settings.binaryPath || "sigma";
+    const command = resolveSigmaBinaryPath(settings, environment);
     const spawnCommand = yield* resolveSpawnCommand(command, ["--version"], {
       env: environment,
     });

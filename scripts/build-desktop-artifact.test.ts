@@ -2,8 +2,10 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -37,6 +39,7 @@ import {
   resolvePackageManagerUserAgent,
   stageLinuxIconSize,
   STAGE_INSTALL_ARGS,
+  stageBundledSigmaRuntime,
 } from "./build-desktop-artifact.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { DISTRIBUTION_LEGAL_RESOURCES } from "./lib/distribution-legal-resources.ts";
@@ -495,8 +498,48 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(config.protocols, [
         { name: "Sigma Code", schemes: ["sigmacode", "sigmacode-dev"] },
       ]);
-      assert.deepStrictEqual(config.extraResources, [{ from: "legal", to: "legal" }]);
+      assert.deepStrictEqual(config.extraResources, [
+        { from: "legal", to: "legal" },
+        { from: "sigma-runtime", to: "sigma-runtime" },
+      ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it.effect("stages the verified Sigma Runtime bundle as an opaque resource", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const tempDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "sigma-code-runtime-stage-test-",
+      });
+      const runtimePath = path.join(tempDir, "runtime");
+      const stageAppDir = path.join(tempDir, "app");
+      const requiredFiles = [
+        "bin/sigma.cmd",
+        "LICENSE",
+        "integrity-manifest.json",
+        "package-metadata.json",
+        "sbom.cdx.json",
+      ];
+
+      for (const relativePath of requiredFiles) {
+        const filePath = path.join(runtimePath, relativePath);
+        yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
+        yield* fileSystem.writeFileString(filePath, relativePath);
+      }
+
+      yield* stageBundledSigmaRuntime({
+        stageAppDir,
+        platform: "win",
+        runtimePath,
+      });
+
+      for (const relativePath of requiredFiles) {
+        assert.isTrue(
+          yield* fileSystem.exists(path.join(stageAppDir, "sigma-runtime", relativePath)),
+        );
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
   it.effect("keeps executable resource editing enabled for unsigned Windows builds", () =>
@@ -625,6 +668,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         mockUpdates: Option.none(),
         mockUpdateServerPort: Option.none(),
         wslPrebuild: Option.none(),
+        sigmaRuntime: Option.none(),
       }).pipe(
         Effect.provide(
           Layer.mergeAll(
@@ -663,6 +707,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         mockUpdates: Option.some(false),
         mockUpdateServerPort: Option.none(),
         wslPrebuild: Option.none(),
+        sigmaRuntime: Option.none(),
       }).pipe(
         Effect.provide(
           ConfigProvider.layer(

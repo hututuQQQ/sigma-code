@@ -86,6 +86,8 @@ const DESKTOP_BACKEND_ENV_NAMES = [
   "SIGMACODE_TAILSCALE_SERVE_PORT",
 ] as const;
 
+export const BUNDLED_SIGMA_BINARY_ENV = "SIGMACODE_BUNDLED_SIGMA_PATH";
+
 // Sensitive env vars that the WSL backend needs but Windows process.env won't
 // forward across the wsl.exe boundary without WSLENV. The dev-server URL is
 // handled separately via a `--dev-url` CLI flag because WSLENV translation of
@@ -96,6 +98,30 @@ const WSL_SERVER_SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bi
 
 const backendChildEnvPatch = (): Record<string, string | undefined> =>
   Object.fromEntries(DESKTOP_BACKEND_ENV_NAMES.map((name) => [name, undefined]));
+
+export const resolveBundledSigmaBinaryPath = Effect.fn(
+  "desktop.backendConfiguration.resolveBundledSigmaBinaryPath",
+)(function* (): Effect.fn.Return<
+  string | undefined,
+  never,
+  DesktopEnvironment.DesktopEnvironment | FileSystem.FileSystem
+> {
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  if (!environment.isPackaged) {
+    return undefined;
+  }
+
+  const fileSystem = yield* FileSystem.FileSystem;
+  const launcher = environment.platform === "win32" ? "sigma.cmd" : "sigma";
+  const candidate = environment.path.join(
+    environment.resourcesPath,
+    "sigma-runtime",
+    "bin",
+    launcher,
+  );
+  const exists = yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false));
+  return exists ? candidate : undefined;
+});
 
 const getWslEnvEntryName = (entry: string): string => {
   const slashIndex = entry.indexOf("/");
@@ -330,11 +356,14 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
   ): Effect.fn.Return<
     DesktopBackendManager.DesktopBackendStartConfig,
     never,
-    DesktopEnvironment.DesktopEnvironment | DesktopServerExposure.DesktopServerExposure
+    | DesktopEnvironment.DesktopEnvironment
+    | DesktopServerExposure.DesktopServerExposure
+    | FileSystem.FileSystem
   > {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const backendExposure = yield* serverExposure.backendConfig;
+    const bundledSigmaBinaryPath = yield* resolveBundledSigmaBinaryPath();
 
     const bootstrap = {
       mode: "desktop" as const,
@@ -356,6 +385,9 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       env: {
         ...backendChildEnvPatch(),
         ELECTRON_RUN_AS_NODE: "1",
+        ...(bundledSigmaBinaryPath === undefined
+          ? {}
+          : { [BUNDLED_SIGMA_BINARY_ENV]: bundledSigmaBinaryPath }),
       },
       // Primary wants process.env (PATH, dev-runner's SIGMACODE_HOME, etc.).
       extendEnv: true,
@@ -624,6 +656,7 @@ export const make = Effect.gen(function* () {
     return yield* resolvePrimaryStartConfig(shared).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopServerExposure.DesktopServerExposure, serverExposure),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
     );
   });
 

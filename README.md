@@ -33,7 +33,8 @@ data.
 Sigma Code retains the other upstream providers. Install and authenticate any
 provider you intend to use:
 
-- Sigma: make the `sigma` CLI available on `PATH`, or set its binary path
+- Sigma: desktop artifacts include a verified Sigma Runtime; development builds
+  use `sigma` on `PATH` unless a binary path is configured
 - Codex: install Codex CLI and run `codex login`
 - Claude: install Claude Code and run `claude auth login`
 - Cursor: install Cursor CLI and run `cursor-agent login`
@@ -70,6 +71,17 @@ vp run dev:desktop
 
 The Sigma provider automatically starts the long-lived local ACP server with
 `sigma acp`.
+
+Desktop artifacts must be built with a verified portable Runtime produced by
+the Sigma repository:
+
+```powershell
+$env:SIGMACODE_DESKTOP_SIGMA_RUNTIME = "C:\path\to\sigma\.artifacts\agent-cli-win32-x64"
+vp run dist:desktop:win:x64
+```
+
+The build rejects missing or incomplete Runtime bundles so a distributable
+installer cannot silently ship without the Sigma provider.
 
 ## Documentation
 
