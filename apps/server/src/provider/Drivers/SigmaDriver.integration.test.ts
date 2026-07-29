@@ -333,10 +333,26 @@ describe("SigmaDriver integration", () => {
         assert.strictEqual(providerSnapshot.status, "ready");
         assert.strictEqual(providerSnapshot.installed, true);
         assert.strictEqual(providerSnapshot.version, "0.1.0");
-        assert.include(
-          yield* Effect.promise(() => NodeFSP.readFile(requestLogPath, "utf8")),
-          '"method":"_sigma/health"',
-        );
+        const requestLog = yield* Effect.promise(() => NodeFSP.readFile(requestLogPath, "utf8"));
+        assert.include(requestLog, '"method":"_sigma/health"');
+        const createSessionRequest = requestLog
+          .split(/\r?\n/u)
+          .filter(Boolean)
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                readonly method?: unknown;
+                readonly params?: { readonly cwd?: unknown };
+              },
+          )
+          .find((request) => request.method === "session/new");
+        const probeCwd =
+          typeof createSessionRequest?.params?.cwd === "string"
+            ? createSessionRequest.params.cwd
+            : "";
+        assert.match(NodePath.basename(probeCwd), /^sigma-code-provider-probe-/u);
+        const relativeToTemp = NodePath.relative(NodeOS.tmpdir(), probeCwd);
+        assert.isFalse(relativeToTemp.startsWith("..") || NodePath.isAbsolute(relativeToTemp));
       }),
     );
   });

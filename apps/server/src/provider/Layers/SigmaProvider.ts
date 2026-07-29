@@ -10,6 +10,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
@@ -91,12 +92,20 @@ const runSigmaVersionCommand = (settings: SigmaSettings, environment: NodeJS.Pro
 
 const probeSigmaAcp = (settings: SigmaSettings, environment: NodeJS.ProcessEnv) =>
   Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    // Packaged desktop processes run from the user's home directory, while
+    // Sigma Runtime keeps its state below ~/.sigma. Sigma deliberately rejects
+    // a workspace that contains its state root, so use an isolated temporary
+    // workspace for the provider-level session probe.
+    const probeCwd = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "sigma-code-provider-probe-",
+    });
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const runtime = yield* makeSigmaAcpRuntime({
       grokSettings: settings,
       environment,
       childProcessSpawner,
-      cwd: process.cwd(),
+      cwd: probeCwd,
       clientInfo: { name: "sigma-code-provider-probe", version: "0.0.0" },
     });
     const started = yield* runtime.start();
@@ -125,7 +134,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
 ): Effect.fn.Return<
   ServerProviderDraft,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto
+  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | FileSystem.FileSystem
 > {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = modelsFromSettings(settings.customModels);
