@@ -500,7 +500,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       ]);
       assert.deepStrictEqual(config.extraResources, [
         { from: "legal", to: "legal" },
-        { from: "sigma-runtime", to: "sigma-runtime" },
+        { from: ".", to: ".", filter: ["sigma-runtime/**/*"] },
       ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
