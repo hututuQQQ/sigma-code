@@ -15,6 +15,7 @@ import * as Result from "effect/Result";
 import { useState, type ReactNode } from "react";
 import {
   isProviderDriverKind,
+  type EnvironmentId,
   type ProviderInstanceConfig,
   type ProviderInstanceEnvironmentVariable,
   type ProviderInstanceId,
@@ -43,6 +44,7 @@ import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
+import { ProviderAuthConnectionControls } from "../provider-auth/ProviderAuthFlow";
 import {
   getProviderVersionAdvisoryPresentation,
   PROVIDER_STATUS_STYLES,
@@ -319,6 +321,8 @@ function ProviderEnvironmentSection(props: {
 }
 
 interface ProviderInstanceCardProps {
+  readonly environmentId: EnvironmentId | undefined;
+  readonly canStartProviderAuth: boolean;
   readonly instanceId: ProviderInstanceId;
   readonly instance: ProviderInstanceConfig;
   readonly driverOption: DriverOption | undefined;
@@ -376,6 +380,8 @@ interface ProviderInstanceCardProps {
  *     flows through the envelope.
  */
 export function ProviderInstanceCard({
+  environmentId,
+  canStartProviderAuth,
   instanceId,
   instance,
   driverOption,
@@ -726,6 +732,20 @@ export function ProviderInstanceCard({
           </div>
         </div>
       </div>
+
+      {environmentId && (liveProvider?.authConnections?.length ?? 0) > 0 ? (
+        <div className="space-y-2 px-3 pb-3 sm:px-4">
+          {liveProvider?.authConnections?.map((connection) => (
+            <ProviderAuthConnectionControls
+              key={connection.id}
+              environmentId={environmentId}
+              instanceId={instanceId}
+              connection={connection}
+              canStartLogin={canStartProviderAuth}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <Collapsible open={isExpanded} onOpenChange={onExpandedChange}>
         <CollapsibleContent>

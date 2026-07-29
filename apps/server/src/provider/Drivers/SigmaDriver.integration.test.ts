@@ -48,6 +48,10 @@ async function makeMockSigmaBinary(
       "  echo Sigma Code 0.1.0-test",
       "  exit /b 0",
       ")",
+      'if "%~1"=="auth" if "%~2"=="status" (',
+      '  echo {"provider":"openai-codex","status":"unauthenticated"}',
+      "  exit /b 0",
+      ")",
       `set "T3_ACP_REQUEST_LOG_PATH=${requestLogPath}"`,
       'set "T3_ACP_EMIT_TOOL_CALLS=1"',
       'set "SIGMACODE_ACP_EMIT_THOUGHT=1"',
@@ -65,6 +69,10 @@ async function makeMockSigmaBinary(
     "#!/bin/sh",
     'if [ "$1" = "--version" ]; then',
     '  echo "Sigma Code 0.1.0-test"',
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+    '  echo \'{"provider":"openai-codex","status":"unauthenticated"}\'',
     "  exit 0",
     "fi",
     `export T3_ACP_REQUEST_LOG_PATH=${JSON.stringify(requestLogPath)}`,
@@ -145,6 +153,20 @@ describe("SigmaDriver integration", () => {
           assert.strictEqual(instance.driverKind, ProviderDriverKind.make("sigma"));
           assert.strictEqual(instance.adapter.provider, ProviderDriverKind.make("sigma"));
           assert.strictEqual(instance.adapter.capabilities.sessionModelSwitch, "unsupported");
+
+          const initialSnapshot = yield* instance.snapshot.getSnapshot;
+          assert.isTrue(
+            initialSnapshot.models.some(
+              (model) =>
+                model.slug === "openai-codex/gpt-5.6-terra" &&
+                model.authConnectionId === "openai-codex",
+            ),
+          );
+          assert.isTrue(
+            (initialSnapshot.authConnections ?? []).some(
+              (connection) => connection.id === "openai-codex" && connection.status === "unknown",
+            ),
+          );
 
           const providerSnapshot = yield* instance.snapshot.refresh;
           assert.strictEqual(providerSnapshot.status, "ready");

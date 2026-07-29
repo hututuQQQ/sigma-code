@@ -315,6 +315,34 @@ export function createServerEnvironmentAtoms<R, E>(
         key: ({ environmentId }) => environmentId,
       },
     }),
+    providerAuthOperation: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:providers:auth-operation",
+      tag: WS_METHODS.subscribeProviderAuth,
+      idleTtlMs: 0,
+    }),
+    startProviderAuth: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:providers:start-auth",
+      tag: WS_METHODS.providerStartAuth,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([environmentId, input.instanceId, input.connectionId]),
+      },
+    }),
+    respondProviderAuth: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:providers:respond-auth",
+      tag: WS_METHODS.providerRespondAuth,
+    }),
+    cancelProviderAuth: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:providers:cancel-auth",
+      tag: WS_METHODS.providerCancelAuth,
+    }),
+    logoutProviderAuth: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:providers:logout-auth",
+      tag: WS_METHODS.providerLogoutAuth,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     updateProvider: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:update-provider",
       tag: WS_METHODS.serverUpdateProvider,

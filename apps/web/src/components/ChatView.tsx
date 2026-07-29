@@ -68,6 +68,12 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
+import {
+  providerAuthRequirementKey,
+  providerModelNeedsLogin,
+  resolveProviderModelAuthRequirement,
+  type ProviderModelAuthRequirement,
+} from "../providerAuth";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
   collapseExpandedComposerCursor,
@@ -116,6 +122,7 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { ProviderAuthGateDialog } from "./provider-auth/ProviderAuthFlow";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
   selectActiveRightPanel,
@@ -1950,6 +1957,40 @@ function ChatViewContent(props: ChatViewProps) {
     versionMismatchServerLabel,
   ]);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const [pendingProviderAuth, setPendingProviderAuth] =
+    useState<ProviderModelAuthRequirement | null>(null);
+  const pendingProviderAuthResumeRef = useRef<(() => void) | null>(null);
+  const recentlyAuthenticatedProviderKeysRef = useRef<Set<string>>(new Set());
+  const requestProviderModelAuth = useCallback(
+    (selection: ModelSelection, resume: () => void): boolean => {
+      const requirement = resolveProviderModelAuthRequirement(providerStatuses, selection);
+      if (!providerModelNeedsLogin(requirement)) return true;
+      const key = providerAuthRequirementKey(requirement);
+      if (recentlyAuthenticatedProviderKeysRef.current.delete(key)) {
+        return true;
+      }
+      pendingProviderAuthResumeRef.current = resume;
+      setPendingProviderAuth(requirement);
+      return false;
+    },
+    [providerStatuses],
+  );
+  const completePendingProviderAuth = useCallback(() => {
+    if (!pendingProviderAuth) return;
+    recentlyAuthenticatedProviderKeysRef.current.add(
+      providerAuthRequirementKey(pendingProviderAuth),
+    );
+    const resume = pendingProviderAuthResumeRef.current;
+    pendingProviderAuthResumeRef.current = null;
+    setPendingProviderAuth(null);
+    if (resume) queueMicrotask(resume);
+  }, [pendingProviderAuth]);
+  const cancelPendingProviderAuth = useCallback(() => {
+    pendingProviderAuthResumeRef.current = null;
+    setPendingProviderAuth(null);
+  }, []);
+  const canStartProviderAuth =
+    isElectron && activeEnvironment?.entry.target._tag === "PrimaryConnectionTarget";
   const unlockedSelectedProvider = resolveSelectableProvider(
     providerStatuses,
     selectedProviderByThreadId ?? threadProvider,
@@ -4465,7 +4506,7 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onSend = async (e?: { preventDefault: () => void }) => {
+  async function onSend(e?: { preventDefault: () => void }) {
     e?.preventDefault();
     if (
       !activeThread ||
@@ -4493,6 +4534,13 @@ function ChatViewContent(props: ChatViewProps) {
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
+    if (
+      !requestProviderModelAuth(ctxSelectedModelSelection, () => {
+        void onSend();
+      })
+    ) {
+      return;
+    }
     const promptForSend = promptRef.current;
     const {
       trimmedPrompt: trimmed,
@@ -4856,7 +4904,7 @@ function ChatViewContent(props: ChatViewProps) {
       );
       resetLocalDispatch();
     }
-  };
+  }
 
   const onInterrupt = async () => {
     if (!activeThread) return;
@@ -5207,7 +5255,7 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onImplementPlanInNewThread = useCallback(async () => {
+  const onImplementPlanInNewThread: () => Promise<void> = useCallback(async () => {
     if (
       !activeThread ||
       !activeProject ||
@@ -5232,6 +5280,13 @@ function ChatViewContent(props: ChatViewProps) {
       selectedPromptEffort: ctxSelectedPromptEffort,
       selectedModelSelection: ctxSelectedModelSelection,
     } = sendCtx;
+    if (
+      !requestProviderModelAuth(ctxSelectedModelSelection, () => {
+        void onImplementPlanInNewThread();
+      })
+    ) {
+      return;
+    }
 
     const createdAt = new Date().toISOString();
     const nextThreadId = newThreadId();
@@ -5359,6 +5414,7 @@ function ChatViewContent(props: ChatViewProps) {
     isSendBusy,
     isServerThread,
     navigate,
+    requestProviderModelAuth,
     resetLocalDispatch,
     runtimeMode,
     startThreadTurn,
@@ -5945,6 +6001,16 @@ function ChatViewContent(props: ChatViewProps) {
                 threadRef={activeThreadRef}
                 tabId={activePreviewMiniPlayer.tabId}
                 bottomInset={isDraftHeroState ? 0 : composerOverlayHeight}
+              />
+            ) : null}
+
+            {pendingProviderAuth ? (
+              <ProviderAuthGateDialog
+                requirement={pendingProviderAuth}
+                environmentId={environmentId}
+                canStartLogin={canStartProviderAuth}
+                onAuthenticated={completePendingProviderAuth}
+                onCancel={cancelPendingProviderAuth}
               />
             ) : null}
 

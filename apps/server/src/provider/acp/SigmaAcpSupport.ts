@@ -1,4 +1,8 @@
-import { type SigmaSettings, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+  type SigmaSettings,
+  ProviderDriverKind,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -11,7 +15,7 @@ import { normalizeModelSlug } from "@t3tools/shared/model";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
 const SIGMA_DRIVER_KIND = ProviderDriverKind.make("sigma");
-const DEFAULT_SIGMA_MODEL = "deepseek/deepseek-v4-pro";
+const DEFAULT_SIGMA_MODEL = DEFAULT_SIGMA_SUBSCRIPTION_MODEL;
 const SIGMA_MODEL_CONFIG_ID = "sigma.model";
 const DEFAULT_SIGMA_BINARY = "sigma";
 

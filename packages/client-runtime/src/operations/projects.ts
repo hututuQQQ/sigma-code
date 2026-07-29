@@ -7,6 +7,7 @@ import type {
   SourceControlProviderKind,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
+import { DEFAULT_SIGMA_SUBSCRIPTION_MODEL, ProviderInstanceId } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
@@ -214,7 +215,10 @@ export function buildProjectCreateCommand(input: {
     title: inferProjectTitleFromPath(input.workspaceRoot),
     workspaceRoot: input.workspaceRoot,
     createWorkspaceRootIfMissing: true,
-    defaultModelSelection: null,
+    defaultModelSelection: {
+      instanceId: ProviderInstanceId.make("sigma"),
+      model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+    },
     createdAt: input.createdAt,
   };
 }

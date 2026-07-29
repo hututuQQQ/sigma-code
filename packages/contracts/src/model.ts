@@ -135,6 +135,7 @@ const SIGMA_DRIVER_KIND = ProviderDriverKind.make("sigma");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
 export const DEFAULT_MODEL = "gpt-5.6-sol";
+export const DEFAULT_SIGMA_SUBSCRIPTION_MODEL = "openai-codex/gpt-5.6-terra";
 
 /**
  * Codex default-model preference, most preferred first. The provider snapshot
@@ -152,7 +153,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, strin
   [CLAUDE_DRIVER_KIND]: "claude-sonnet-5",
   [CURSOR_DRIVER_KIND]: "auto",
   [GROK_DRIVER_KIND]: "grok-build",
-  [SIGMA_DRIVER_KIND]: "deepseek/deepseek-v4-pro",
+  [SIGMA_DRIVER_KIND]: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
 };
 
@@ -163,7 +164,7 @@ export const DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER: Partial<
   [CODEX_DRIVER_KIND]: DEFAULT_TEXT_GENERATION_MODEL,
   [CLAUDE_DRIVER_KIND]: "claude-haiku-4-5",
   [CURSOR_DRIVER_KIND]: "composer-2",
-  [SIGMA_DRIVER_KIND]: "deepseek/deepseek-v4-pro",
+  [SIGMA_DRIVER_KIND]: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   [OPENCODE_DRIVER_KIND]: "openai/gpt-5",
 };
 
@@ -219,7 +220,7 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Partial<
 // ── Provider display names ────────────────────────────────────────────
 
 export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>> = {
-  [CODEX_DRIVER_KIND]: "Codex",
+  [CODEX_DRIVER_KIND]: "Codex CLI（独立 Agent）",
   [CLAUDE_DRIVER_KIND]: "Claude",
   [CURSOR_DRIVER_KIND]: "Cursor",
   [GROK_DRIVER_KIND]: "Grok",

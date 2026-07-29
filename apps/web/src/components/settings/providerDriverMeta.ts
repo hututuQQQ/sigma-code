@@ -46,7 +46,7 @@ export interface ProviderClientDefinition {
 export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
   {
     value: ProviderDriverKind.make("codex"),
-    label: "Codex",
+    label: "Codex CLI（独立 Agent）",
     icon: OpenAI,
     settingsSchema: CodexSettings,
   },

@@ -114,6 +114,14 @@ import {
 import {
   ServerConfigStreamEvent,
   ServerConfig,
+  ProviderAuthCancelInput,
+  ProviderAuthLogoutInput,
+  ProviderAuthOperationEvent,
+  ProviderAuthRespondInput,
+  ProviderAuthRpcError,
+  ProviderAuthStartInput,
+  ProviderAuthStartResult,
+  ProviderAuthSubscribeInput,
   ServerProviderUpdateError,
   ServerProviderUpdateInput,
   ServerLifecycleStreamEvent,
@@ -205,6 +213,11 @@ export const WS_METHODS = {
   serverProbe: "server.probe",
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
+  providerStartAuth: "providers.startAuth",
+  providerRespondAuth: "providers.respondAuth",
+  providerCancelAuth: "providers.cancelAuth",
+  providerLogoutAuth: "providers.logoutAuth",
+  subscribeProviderAuth: "providers.subscribeAuth",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpsertKeybinding: "server.upsertKeybinding",
@@ -273,6 +286,30 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   }),
   success: ServerProviderUpdatedPayload,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsProviderStartAuthRpc = Rpc.make(WS_METHODS.providerStartAuth, {
+  payload: ProviderAuthStartInput,
+  success: ProviderAuthStartResult,
+  error: Schema.Union([ProviderAuthRpcError, EnvironmentAuthorizationError]),
+});
+
+export const WsProviderRespondAuthRpc = Rpc.make(WS_METHODS.providerRespondAuth, {
+  payload: ProviderAuthRespondInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([ProviderAuthRpcError, EnvironmentAuthorizationError]),
+});
+
+export const WsProviderCancelAuthRpc = Rpc.make(WS_METHODS.providerCancelAuth, {
+  payload: ProviderAuthCancelInput,
+  success: Schema.Struct({}),
+  error: Schema.Union([ProviderAuthRpcError, EnvironmentAuthorizationError]),
+});
+
+export const WsProviderLogoutAuthRpc = Rpc.make(WS_METHODS.providerLogoutAuth, {
+  payload: ProviderAuthLogoutInput,
+  success: ServerProviderUpdatedPayload,
+  error: Schema.Union([ProviderAuthRpcError, EnvironmentAuthorizationError]),
 });
 
 export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
@@ -690,10 +727,21 @@ export const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess,
   stream: true,
 });
 
+export const WsSubscribeProviderAuthRpc = Rpc.make(WS_METHODS.subscribeProviderAuth, {
+  payload: ProviderAuthSubscribeInput,
+  success: ProviderAuthOperationEvent,
+  error: Schema.Union([ProviderAuthRpcError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
+  WsProviderStartAuthRpc,
+  WsProviderRespondAuthRpc,
+  WsProviderCancelAuthRpc,
+  WsProviderLogoutAuthRpc,
   WsServerUpdateProviderRpc,
   WsServerUpdateServerRpc,
   WsServerUpsertKeybindingRpc,
@@ -754,6 +802,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
+  WsSubscribeProviderAuthRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,

@@ -28,6 +28,11 @@ import {
   resolveSigmaBinaryPath,
   sigmaModelsFromSessionSetup,
 } from "../acp/SigmaAcpSupport.ts";
+import {
+  makePendingSigmaCodexAuthConnection,
+  readSigmaCodexAuthConnection,
+  SIGMA_CODEX_AUTH_CONNECTION_ID,
+} from "../SigmaAuthCapability.ts";
 
 const SIGMA_PRESENTATION = {
   displayName: "Sigma",
@@ -37,14 +42,28 @@ const SIGMA_PRESENTATION = {
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
+const FALLBACK_SIGMA_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "openai-codex/gpt-5.6-terra",
+    name: "GPT-5.6 Terra",
+    isCustom: false,
+    isDefault: true,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+];
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const ACP_PROBE_TIMEOUT_MS = 20_000;
 
 function modelsFromSettings(
   customModels: ReadonlyArray<string> | undefined,
-  discovered: ReadonlyArray<ServerProviderModel> = [],
+  discovered: ReadonlyArray<ServerProviderModel> = FALLBACK_SIGMA_MODELS,
 ): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings(discovered, customModels ?? [], EMPTY_CAPABILITIES);
+  return providerModelsFromSettings(discovered, customModels ?? [], EMPTY_CAPABILITIES).map(
+    (model) =>
+      model.slug.startsWith(`${SIGMA_CODEX_AUTH_CONNECTION_ID}/`)
+        ? { ...model, authConnectionId: SIGMA_CODEX_AUTH_CONNECTION_ID }
+        : model,
+  );
 }
 
 export const buildInitialSigmaProviderSnapshot = Effect.fn("buildInitialSigmaProviderSnapshot")(
@@ -56,6 +75,7 @@ export const buildInitialSigmaProviderSnapshot = Effect.fn("buildInitialSigmaPro
       enabled: settings.enabled,
       checkedAt,
       models,
+      authConnections: [makePendingSigmaCodexAuthConnection()],
       probe: settings.enabled
         ? {
             installed: true,
@@ -153,6 +173,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: [makePendingSigmaCodexAuthConnection()],
       probe: {
         installed: !isCommandMissingCause(error),
         version: null,
@@ -170,6 +191,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: [makePendingSigmaCodexAuthConnection()],
       probe: {
         installed: true,
         version: null,
@@ -188,6 +210,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: [makePendingSigmaCodexAuthConnection()],
       probe: {
         installed: true,
         version,
@@ -198,6 +221,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
     });
   }
 
+  const authConnection = yield* readSigmaCodexAuthConnection(settings, environment);
   const acpExit = yield* probeSigmaAcp(settings, environment).pipe(
     Effect.timeoutOption(ACP_PROBE_TIMEOUT_MS),
     Effect.exit,
@@ -211,6 +235,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: [authConnection],
       probe: {
         installed: true,
         version,
@@ -226,6 +251,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: [authConnection],
       probe: {
         installed: true,
         version,
@@ -242,6 +268,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
     enabled: true,
     checkedAt,
     models: modelsFromSettings(settings.customModels, discovered),
+    authConnections: [authConnection],
     probe: {
       installed: true,
       version,

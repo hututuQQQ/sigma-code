@@ -25,6 +25,7 @@ import {
 } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
+import { makeSigmaAuthCapability } from "../SigmaAuthCapability.ts";
 import {
   makeManualOnlyProviderMaintenanceCapabilities,
   makeStaticProviderMaintenanceResolver,
@@ -109,6 +110,11 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
         instanceId,
       });
       const textGeneration = yield* makeSigmaTextGeneration(effectiveConfig, processEnv);
+      const auth = makeSigmaAuthCapability({
+        settings: effectiveConfig,
+        environment: processEnv,
+        spawner,
+      });
       const checkProvider = checkSigmaProviderStatus(effectiveConfig, processEnv).pipe(
         Effect.map(stampIdentity),
         Effect.provideService(Crypto.Crypto, crypto),
@@ -147,6 +153,7 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        auth,
       } satisfies ProviderInstance;
     }),
 };

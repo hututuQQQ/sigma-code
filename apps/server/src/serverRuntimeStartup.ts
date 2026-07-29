@@ -1,6 +1,6 @@
 import {
   CommandId,
-  DEFAULT_MODEL,
+  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   type ModelSelection,
   ProjectId,
@@ -34,6 +34,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
+import { migrateSubscriptionDefaults } from "./orchestration/subscriptionDefaultMigration.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -162,8 +163,8 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
 );
 
 export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
-  instanceId: ProviderInstanceId.make("codex"),
-  model: DEFAULT_MODEL,
+  instanceId: ProviderInstanceId.make("sigma"),
+  model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
 });
 
 export const resolveWelcomeBase = Effect.gen(function* () {
@@ -344,6 +345,23 @@ export const make = Effect.gen(function* () {
         yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
         yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
       }),
+    );
+
+    yield* runStartupPhase(
+      "subscription-defaults.migrate",
+      migrateSubscriptionDefaults.pipe(
+        Effect.tap(({ migratedProjects, migratedThreads }) =>
+          migratedProjects + migratedThreads > 0
+            ? Effect.logInfo("Migrated untouched welcome tasks to the Sigma subscription default", {
+                migratedProjects,
+                migratedThreads,
+              })
+            : Effect.void,
+        ),
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not migrate legacy automatic model defaults", { cause }),
+        ),
+      ),
     );
 
     const welcomeBase = yield* resolveWelcomeBase;

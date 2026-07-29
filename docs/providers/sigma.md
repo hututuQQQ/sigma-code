@@ -21,6 +21,13 @@ The portable Runtime remains an opaque resource built and verified in the Sigma
 repository. Sigma Code does not copy Sigma source into this fork or add its
 packages to the T3 workspace dependency graph.
 
+The default Runtime model route is
+`openai-codex/gpt-5.6-terra`. On Windows, Sigma Code can authenticate this route
+against a ChatGPT/Codex subscription without an API key. The subscription
+adapter is experimental and isolated from Sigma's other providers; failures
+never fall back to a metered provider. See
+[ChatGPT subscription login](../getting-started/chatgpt-subscription.md).
+
 The integration supports health and model discovery, session create/load/resume
 and release, streaming text and reasoning, plans, tool progress, approval
 allow/deny, active steering, follow-up prompts, and cancellation. It does not

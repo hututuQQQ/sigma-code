@@ -13,6 +13,7 @@
  * @module providerInstances
  */
 import {
+  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
   PROVIDER_DISPLAY_NAMES,
@@ -336,6 +337,24 @@ export function resolveDefaultProviderModelSelection(
   providers: ReadonlyArray<ServerProvider>,
   selection: ModelSelection | null | undefined,
 ): ModelSelection | null {
+  if (selection == null) {
+    const sigmaInstanceId = ProviderInstanceId.make("sigma");
+    const sigmaEntry = getProviderInstanceEntry(providers, sigmaInstanceId);
+    const hasSubscriptionModel = sigmaEntry?.models.some(
+      (model) => model.slug === DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+    );
+    if (
+      sigmaEntry &&
+      isSelectableProviderInstanceEntry(sigmaEntry) &&
+      hasSubscriptionModel === true
+    ) {
+      return {
+        instanceId: sigmaInstanceId,
+        model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+      };
+    }
+  }
+
   const instanceId = resolveSelectableProviderInstance(providers, selection?.instanceId);
   if (instanceId === undefined) return null;
   if (selection?.instanceId === instanceId) return selection;

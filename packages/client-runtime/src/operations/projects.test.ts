@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   EnvironmentId,
   ProjectId,
   CommandId,
@@ -137,7 +138,10 @@ describe("add project shared logic", () => {
       title: "repo",
       workspaceRoot: "/work/repo",
       createWorkspaceRootIfMissing: true,
-      defaultModelSelection: null,
+      defaultModelSelection: {
+        instanceId: "sigma",
+        model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+      },
     });
   });
 });

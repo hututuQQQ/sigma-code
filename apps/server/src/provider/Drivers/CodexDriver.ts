@@ -108,7 +108,7 @@ const withInstanceIdentity =
 export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
   driverKind: DRIVER_KIND,
   metadata: {
-    displayName: "Codex",
+    displayName: "Codex CLI（独立 Agent）",
     supportsMultipleInstances: true,
   },
   configSchema: CodexSettings,

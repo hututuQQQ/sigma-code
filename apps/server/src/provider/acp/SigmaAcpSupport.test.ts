@@ -86,7 +86,7 @@ describe("SigmaAcpSupport", () => {
   });
 
   it("normalizes defaults and discovers flat or grouped ACP model options", () => {
-    expect(resolveSigmaAcpModelId(undefined)).toBe("deepseek/deepseek-v4-pro");
+    expect(resolveSigmaAcpModelId(undefined)).toBe("openai-codex/gpt-5.6-terra");
     expect(currentSigmaModelIdFromSessionSetup(sessionSetup)).toBe("glm/glm-5.2");
     expect(sigmaModelsFromSessionSetup(sessionSetup)).toEqual([
       { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro" },

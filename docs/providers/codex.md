@@ -1,6 +1,12 @@
-# Codex
+# Codex CLI（独立 Agent）
 
-This guide is for people who want to use more than one Codex account in T3 Code.
+This provider launches Codex CLI as a standalone agent and is retained for
+compatibility with existing sessions. It is different from the default
+**Sigma Runtime + ChatGPT subscription** route, where Sigma remains the agent
+runtime and only model requests use the subscription adapter.
+
+This guide is for people who want to use more than one standalone Codex account
+in Sigma Code.
 
 Common reasons:
 
@@ -16,7 +22,7 @@ Use the default provider.
 In Settings, your Codex provider can stay like this:
 
 ```text
-Display name: Codex
+Display name: Codex CLI（独立 Agent）
 CODEX_HOME path: ~/.codex
 Shadow home path: empty
 ```
