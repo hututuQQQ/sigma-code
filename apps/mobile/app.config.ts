@@ -1,18 +1,23 @@
 import type { ExpoConfig } from "expo/config";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
-import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
+import { DISTRIBUTION_LEGAL_RESOURCES } from "../../scripts/lib/distribution-legal-resources.ts";
+import { clearUntrustedPublicConfigAliases, loadRepoEnv } from "../../scripts/lib/public-config.ts";
 
 type AppVariant = "development" | "preview" | "production";
 
 const repoEnv = loadRepoEnv();
+clearUntrustedPublicConfigAliases(process.env);
 Object.assign(process.env, repoEnv);
 
 const APP_VARIANT = resolveAppVariant(repoEnv.APP_VARIANT);
-const isIosPersonalTeamBuild = repoEnv.T3CODE_IOS_PERSONAL_TEAM === "1";
+const isIosPersonalTeamBuild = repoEnv.SIGMACODE_IOS_PERSONAL_TEAM === "1";
 
-const personalTeamBundleIdentifier = repoEnv.T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
+const personalTeamBundleIdentifier = repoEnv.SIGMACODE_IOS_PERSONAL_TEAM_BUNDLE_ID?.trim();
 const IOS_BUNDLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
+const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/;
+const RELYING_PARTY_DOMAIN_PATTERN =
+  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 const fromRepoRoot = (relativePath: string) => `../../${relativePath}`;
 
@@ -22,9 +27,29 @@ if (
     !IOS_BUNDLE_IDENTIFIER_PATTERN.test(personalTeamBundleIdentifier))
 ) {
   throw new Error(
-    "T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.t3code when T3CODE_IOS_PERSONAL_TEAM=1.",
+    "SIGMACODE_IOS_PERSONAL_TEAM_BUNDLE_ID must be a reverse-DNS identifier such as com.example.sigmacode when SIGMACODE_IOS_PERSONAL_TEAM=1.",
   );
 }
+
+const configuredAppleTeamId = repoEnv.SIGMACODE_APPLE_TEAM_ID?.trim().toUpperCase();
+if (configuredAppleTeamId && !APPLE_TEAM_ID_PATTERN.test(configuredAppleTeamId)) {
+  throw new Error("SIGMACODE_APPLE_TEAM_ID must be a 10-character Apple Developer Team ID.");
+}
+
+const configuredRelyingPartyDomain =
+  repoEnv.SIGMACODE_MOBILE_RELYING_PARTY_DOMAIN?.trim().toLowerCase();
+if (
+  configuredRelyingPartyDomain &&
+  !RELYING_PARTY_DOMAIN_PATTERN.test(configuredRelyingPartyDomain)
+) {
+  throw new Error("SIGMACODE_MOBILE_RELYING_PARTY_DOMAIN must be a valid DNS hostname.");
+}
+
+const mobileCloudConfigured = Boolean(
+  repoEnv.SIGMACODE_RELAY_URL?.trim() &&
+  repoEnv.SIGMACODE_CLERK_PUBLISHABLE_KEY?.trim() &&
+  repoEnv.SIGMACODE_CLERK_JWT_TEMPLATE?.trim(),
+);
 
 const DEVELOPMENT_ASSETS = {
   appIcon: fromRepoRoot(BRAND_ASSET_PATHS.developmentIosIconPng),
@@ -61,27 +86,24 @@ const RELEASE_ASSETS = {
 
 const VARIANT_CONFIG = {
   development: {
-    appName: "T3 Code Dev",
-    scheme: "t3code-dev",
-    iosBundleIdentifier: "com.t3tools.t3code.dev",
-    androidPackage: "com.t3tools.t3code.dev",
-    relyingParty: "clerk.t3.codes",
+    appName: "Sigma Code Dev",
+    scheme: "sigmacode-dev",
+    iosBundleIdentifier: "io.github.hututuqqq.sigmacode.dev",
+    androidPackage: "io.github.hututuqqq.sigmacode.dev",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
-    appName: "T3 Code Preview",
-    scheme: "t3code-preview",
-    iosBundleIdentifier: "com.t3tools.t3code.preview",
-    androidPackage: "com.t3tools.t3code.preview",
-    relyingParty: "clerk.t3.codes",
+    appName: "Sigma Code Preview",
+    scheme: "sigmacode-preview",
+    iosBundleIdentifier: "io.github.hututuqqq.sigmacode.preview",
+    androidPackage: "io.github.hututuqqq.sigmacode.preview",
     assets: PREVIEW_ASSETS,
   },
   production: {
-    appName: "T3 Code",
-    scheme: "t3code",
-    iosBundleIdentifier: "com.t3tools.t3code",
-    androidPackage: "com.t3tools.t3code",
-    relyingParty: "clerk.t3.codes",
+    appName: "Sigma Code",
+    scheme: "sigmacode",
+    iosBundleIdentifier: "io.github.hututuqqq.sigmacode",
+    androidPackage: "io.github.hututuqqq.sigmacode",
     assets: RELEASE_ASSETS,
   },
 } as const;
@@ -113,7 +135,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   {
     bundleIdentifier: `${iosBundleIdentifier}.widgets`,
     groupIdentifier: `group.${iosBundleIdentifier}`,
-    enablePushNotifications: true,
+    enablePushNotifications: mobileCloudConfigured,
     // Agent activity can update many times an hour; without the
     // frequent-updates entitlement iOS throttles the update budget sooner.
     frequentUpdates: true,
@@ -121,7 +143,7 @@ const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
       {
         name: "AgentActivity",
         displayName: "Agent Activity",
-        description: "Shows the current state of active T3 Code agents.",
+        description: "Shows the current state of active Sigma Code agents.",
         supportedFamilies: ["systemSmall", "systemMedium", "accessoryRectangular"],
       },
     ],
@@ -152,13 +174,18 @@ const sharingPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   },
 ];
 
+const clerkPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
+  "@clerk/expo",
+  { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild },
+];
+
 // These aliases match the fonts' PostScript names on iOS. Register the same
 // names on Android so React Native and the native composer use one set of
 // family names without waiting for runtime font loading.
 
 const config: ExpoConfig = {
   name: variant.appName,
-  slug: "t3-code",
+  slug: "sigma-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
   version: "0.1.0",
@@ -173,29 +200,30 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: true,
-    url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
-    checkAutomatically: "ON_LOAD",
-    fallbackToCacheTimeout: 0,
+    // Sigma does not own an EAS Update project yet. Keep the embedded bundle
+    // authoritative so a downstream build can never consume T3's OTA channel.
+    enabled: false,
+    checkAutomatically: "NEVER",
   },
   ios: {
     icon: variant.assets.iosIcon,
     supportsTablet: true,
     bundleIdentifier: iosBundleIdentifier,
-    // Pin code signing to the T3 Tools team so non-interactive `expo run:ios`
-    // does not fall back to a personal team (which cannot sign app groups,
-    // Sign in with Apple, or push notification entitlements).
-    appleTeamId: "ARK85ZXQ4Z",
-    associatedDomains: [
-      `applinks:${variant.relyingParty}`,
-      `webcredentials:${variant.relyingParty}`,
-    ],
+    ...(configuredAppleTeamId ? { appleTeamId: configuredAppleTeamId } : {}),
+    ...(mobileCloudConfigured && configuredRelyingPartyDomain
+      ? {
+          associatedDomains: [
+            `applinks:${configuredRelyingPartyDomain}`,
+            `webcredentials:${configuredRelyingPartyDomain}`,
+          ],
+        }
+      : {}),
     infoPlist: {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
       NSLocalNetworkUsageDescription:
-        "Allow T3 Code to connect to T3 Code servers on your local network or tailnet.",
+        "Allow Sigma Code to connect to Sigma Code servers on your local network or tailnet.",
       ITSAppUsesNonExemptEncryption: false,
     },
   },
@@ -216,6 +244,12 @@ const config: ExpoConfig = {
     favicon: variant.assets.appIcon,
   },
   plugins: [
+    [
+      "./plugins/withLegalResources.cjs",
+      {
+        resources: DISTRIBUTION_LEGAL_RESOURCES,
+      },
+    ],
     "expo-asset",
     [
       "expo-font",
@@ -254,9 +288,9 @@ const config: ExpoConfig = {
         mode: APP_VARIANT === "development" ? "development" : "production",
       },
     ],
-    // appleSignIn must be gated here: withoutIosPersonalTeamCapabilities.cjs runs before
-    // plugins earlier in this array, so it cannot strip the entitlement Clerk would add.
-    ["@clerk/expo", { theme: "./clerk-theme.json", appleSignIn: !isIosPersonalTeamBuild }],
+    // Do not add Clerk or Sign in with Apple entitlements to an unconfigured
+    // local-only build. A Sigma-owned relay and Clerk tenant must both exist.
+    ...(mobileCloudConfigured ? [clerkPlugin] : []),
     "expo-web-browser",
     [
       "expo-quick-actions",
@@ -274,7 +308,8 @@ const config: ExpoConfig = {
     [
       "expo-camera",
       {
-        cameraPermission: "Allow T3 Code to access your camera so you can scan pairing QR codes.",
+        cameraPermission:
+          "Allow Sigma Code to access your camera so you can scan pairing QR codes.",
         barcodeScannerEnabled: true,
         recordAudioAndroid: false,
       },
@@ -324,31 +359,27 @@ const config: ExpoConfig = {
     appVariant: APP_VARIANT,
     iosPersonalTeamBuild: isIosPersonalTeamBuild,
     relay: {
-      url: repoEnv.T3CODE_RELAY_URL ?? null,
+      url: repoEnv.SIGMACODE_RELAY_URL ?? null,
     },
     clerk: {
-      publishableKey: repoEnv.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? null,
-      jwtTemplate: repoEnv.EXPO_PUBLIC_CLERK_JWT_TEMPLATE ?? null,
+      publishableKey: repoEnv.SIGMACODE_CLERK_PUBLISHABLE_KEY ?? null,
+      jwtTemplate: repoEnv.SIGMACODE_CLERK_JWT_TEMPLATE ?? null,
     },
     // Native Google sign-in credentials. @clerk/expo reads these from `extra`
     // under their exact env-var names (not nested), and its config plugin reads
     // the iOS URL scheme at prebuild to register it in Info.plist.
     // Unset values must be omitted (not null): the public manifest serializes
     // null to {}, which is truthy and would defeat Clerk's fallback checks.
-    EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID,
-    EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME: repoEnv.EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME,
+    EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID: repoEnv.SIGMACODE_CLERK_GOOGLE_WEB_CLIENT_ID,
+    EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID: repoEnv.SIGMACODE_CLERK_GOOGLE_IOS_CLIENT_ID,
+    EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID: repoEnv.SIGMACODE_CLERK_GOOGLE_ANDROID_CLIENT_ID,
+    EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME: repoEnv.SIGMACODE_CLERK_GOOGLE_IOS_URL_SCHEME,
     observability: {
-      tracesUrl: repoEnv.EXPO_PUBLIC_OTLP_TRACES_URL ?? "https://api.axiom.co/v1/traces",
-      tracesDataset: repoEnv.EXPO_PUBLIC_OTLP_TRACES_DATASET ?? null,
-      tracesToken: repoEnv.EXPO_PUBLIC_OTLP_TRACES_TOKEN ?? null,
-    },
-    eas: {
-      projectId: "d763fcb8-d37c-41ea-a773-b54a0ab4a454",
+      tracesUrl: repoEnv.SIGMACODE_MOBILE_OTLP_TRACES_URL ?? null,
+      tracesDataset: repoEnv.SIGMACODE_MOBILE_OTLP_TRACES_DATASET ?? null,
+      tracesToken: repoEnv.SIGMACODE_MOBILE_OTLP_TRACES_TOKEN ?? null,
     },
   },
-  owner: "pingdotgg",
 };
 
 export default config;

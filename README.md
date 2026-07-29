@@ -1,104 +1,82 @@
-# T3 Code
+# Sigma Code
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app, [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+Sigma Code is an independently maintained desktop, web, and mobile client for
+coding agents. It is a downstream fork of
+[T3 Code](https://github.com/pingdotgg/t3code) with a first-party Sigma provider
+connected over the open Agent Client Protocol (ACP).
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, and OpenCode. If they're set up on your computer, T3 Code can control them.
+Sigma Code is not affiliated with, sponsored by, or endorsed by T3 Tools, Inc.
+The original T3 Code copyright and MIT license are preserved in
+[LICENSE](./LICENSE); downstream and third-party attribution is documented in
+[NOTICE](./NOTICE) and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
-## "Wait, what are you selling me?"
+## Current status
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
+This repository supports local development and unsigned desktop artifacts. No
+Sigma Code release repository, hosted Connect service, signing identity, or
+automatic-update channel is configured. Cloud features and updates therefore
+stay disabled by default.
 
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+The retained upstream marketing site is reference source only and is disabled
+from development, preview, build, and deployment in this downstream.
 
-## Installation
+The application uses its own identities and state:
 
-> [!WARNING]
-> T3 Code currently supports Codex, Claude, Cursor, Grok Build and OpenCode. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `cursor-agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
+- executable: `sigma-code`
+- URL scheme: `sigmacode`
+- application ID: `io.github.hututuqqq.sigmacode`
+- state directory: `~/.sigma/code`
 
-### Try it out (install-free)
+It never migrates, reads, or writes `~/.t3` or the official T3 Code application
+data.
 
-The easiest way to test T3 Code is to run the server in your terminal:
+Sigma Code retains the other upstream providers. Install and authenticate any
+provider you intend to use:
 
-```bash
-npx t3@latest
-```
+- Sigma: make the `sigma` CLI available on `PATH`, or set its binary path
+- Codex: install Codex CLI and run `codex login`
+- Claude: install Claude Code and run `claude auth login`
+- Cursor: install Cursor CLI and run `cursor-agent login`
+- Grok Build: install Grok Build CLI and run `grok login`
+- OpenCode: install OpenCode and run `opencode auth login`
 
-This will launch T3 Code's backend on your machine as well as the local web app to control your agents.
+## Development
 
-Tip: Use `npx t3@latest --help` for the full CLI reference.
-
-### Desktop app
-
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
-
-#### Windows (`winget`)
-
-```bash
-winget install T3Tools.T3Code
-```
-
-#### macOS (Homebrew)
-
-```bash
-brew install --cask t3-code
-```
-
-#### Arch Linux (AUR)
+Install the repository toolchain and dependencies:
 
 ```bash
-yay -S t3code-bin
+curl -fsSL https://vite.plus | bash
+vp install
 ```
 
-## Some notes
+On Windows:
 
-We are very very early in this project. Expect bugs.
+```powershell
+irm https://vite.plus/ps1 | iex
+vp install
+```
 
-We are (mostly) not accepting contributions yet. Small fixes may be considered. Big features will not be.
+Start the web and server development stack:
 
-There's no public docs site yet, checkout the miscellaneous markdown files in [docs](./docs).
+```bash
+vp run dev
+```
+
+Start the desktop development build:
+
+```bash
+vp run dev:desktop
+```
+
+The Sigma provider automatically starts the long-lived local ACP server with
+`sigma acp`.
 
 ## Documentation
 
 - [Getting started](./docs/getting-started/quick-start.md)
-- [Remote access](./docs/user/remote-access.md)
-- [Keeping T3 Code in sync](./docs/user/server-updates.md)
 - [Architecture overview](./docs/architecture/overview.md)
-- [Provider guides](./docs/providers/codex.md)
+- [Provider guides](./docs/providers)
 - [Operations](./docs/operations/ci.md)
-- [Reference](./docs/reference/encyclopedia.md)
+- [Syncing stable T3 releases](./docs/upstream-sync.md)
 
-## If you REALLY want to contribute still.... read this first
-
-### Install `vp`
-
-T3 Code uses Vite+ so you'll need to install the global `vp` command-line tool.
-
-#### macOS / Linux
-
-```bash
-curl -fsSL https://vite.plus | bash
-```
-
-#### Windows
-
-```bash
-irm https://vite.plus/ps1 | iex
-```
-
-Checkout their getting started guide for more information: https://viteplus.dev/guide/
-
-### Install dependencies
-
-```bash
-vp i
-```
-
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
-
-Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
+See [CONTRIBUTING.md](./CONTRIBUTING.md) before submitting downstream changes.

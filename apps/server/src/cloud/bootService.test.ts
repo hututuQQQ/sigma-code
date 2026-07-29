@@ -91,7 +91,8 @@ const makeTestContext = Effect.fn("test.makeTestContext")(function* () {
 it("renders a systemd unit with absolute paths and append-mode logging", () => {
   const unit = BootService.renderBootServiceUnit({
     nodePath: "/usr/local/bin/node",
-    t3EntryPath: "/home/theo/.t3/runtime/versions/0.0.27/node_modules/t3/dist/bin.mjs",
+    cliEntryPath:
+      "/home/theo/.sigma/code/runtime/versions/0.0.27/node_modules/@sigma/code/dist/bin.mjs",
     baseDir: "/home/theo/.t3",
     logPath: "/home/theo/.t3/userdata/logs/boot-service.log",
     unitPath: "/home/theo/.config/systemd/user/t3code.service",
@@ -101,7 +102,7 @@ it("renders a systemd unit with absolute paths and append-mode logging", () => {
     unit,
     [
       "[Unit]",
-      "Description=T3 Code server",
+      "Description=Sigma Code server",
       "StartLimitIntervalSec=300",
       "StartLimitBurst=5",
       "",
@@ -130,7 +131,7 @@ it("quotes systemd values containing spaces and escapes percent specifiers", () 
 
   const unit = BootService.renderBootServiceUnit({
     nodePath: "/home/me/my tools/node",
-    t3EntryPath: "/home/me/T3 Data/bin.mjs",
+    cliEntryPath: "/home/me/Sigma Data/bin.mjs",
     baseDir: "/home/me/T3 Data",
     logPath: "/home/me/100%logs/boot.log",
     unitPath: "/home/me/.config/systemd/user/t3code.service",
@@ -213,7 +214,7 @@ it.layer(NodeServices.layer)("BootService", (it) => {
       const plan = yield* service.install;
 
       // A stable entry point is reused directly — no npm install.
-      assert.equal(plan.t3EntryPath, dirs.stableEntry);
+      assert.equal(plan.cliEntryPath, dirs.stableEntry);
       assert.deepEqual(
         commands.map((entry) => [entry.command, ...entry.args].join(" ")),
         [
@@ -261,7 +262,7 @@ it.layer(NodeServices.layer)("BootService", (it) => {
 
       const runtimeDir = path.join(dirs.baseDir, "runtime", "versions", "0.0.27");
       assert.equal(
-        plan.t3EntryPath,
+        plan.cliEntryPath,
         path.join(runtimeDir, "node_modules", "t3", "dist", "bin.mjs"),
       );
       assert.deepEqual(commands[0], {
@@ -285,9 +286,9 @@ it.layer(NodeServices.layer)("BootService", (it) => {
       }).pipe(Effect.provide(makeRecordingRunnerLayer(commands)), provideHostRefs(dirs.home));
 
       const plan = yield* service.install;
-      yield* fs.makeDirectory(path.dirname(plan.t3EntryPath), { recursive: true });
-      yield* fs.writeFileString(plan.t3EntryPath, "#!/usr/bin/env node\n");
-      yield* fs.remove(plan.t3EntryPath);
+      yield* fs.makeDirectory(path.dirname(plan.cliEntryPath), { recursive: true });
+      yield* fs.writeFileString(plan.cliEntryPath, "#!/usr/bin/env node\n");
+      yield* fs.remove(plan.cliEntryPath);
       commands.length = 0;
 
       yield* service.install;
@@ -313,7 +314,7 @@ it.layer(NodeServices.layer)("BootService", (it) => {
 
       const plan = yield* service.install;
       assert.equal(plan.nodePath, "/opt/node/bin/node");
-      assert.equal(plan.t3EntryPath, dirs.stableEntry);
+      assert.equal(plan.cliEntryPath, dirs.stableEntry);
     }),
   );
 

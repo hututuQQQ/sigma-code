@@ -29,15 +29,15 @@ interface BufferedAnalyticsEvent {
 }
 
 const TelemetryEnvConfig = Config.all({
-  posthogKey: Config.string("T3CODE_POSTHOG_KEY").pipe(
-    Config.withDefault("phc_XOWci4oZP4VvLiEyrFqkFjP4CZn55mjYYBMREK5Wd6m"),
-  ),
-  posthogHost: Config.string("T3CODE_POSTHOG_HOST").pipe(
+  posthogKey: Config.string("SIGMACODE_POSTHOG_KEY").pipe(Config.option),
+  posthogHost: Config.string("SIGMACODE_POSTHOG_HOST").pipe(
     Config.withDefault("https://us.i.posthog.com"),
   ),
-  enabled: Config.boolean("T3CODE_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),
-  flushBatchSize: Config.number("T3CODE_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
-  maxBufferedEvents: Config.number("T3CODE_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
+  enabled: Config.boolean("SIGMACODE_TELEMETRY_ENABLED").pipe(Config.withDefault(false)),
+  flushBatchSize: Config.number("SIGMACODE_TELEMETRY_FLUSH_BATCH_SIZE").pipe(
+    Config.withDefault(20),
+  ),
+  maxBufferedEvents: Config.number("SIGMACODE_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
     Config.withDefault(1_000),
   ),
   wslDistroName: Config.string("WSL_DISTRO_NAME").pipe(Config.option),
@@ -70,7 +70,8 @@ export const make = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig;
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig.ServerConfig;
-  const identifier = yield* getTelemetryIdentifier;
+  const telemetryActive = telemetryConfig.enabled && Option.isSome(telemetryConfig.posthogKey);
+  const identifier = telemetryActive ? yield* getTelemetryIdentifier : null;
   const bufferRef = yield* Ref.make<ReadonlyArray<BufferedAnalyticsEvent>>([]);
   const clientType = serverConfig.mode === "desktop" ? "desktop-app" : "cli-web-client";
   const hostPlatform = yield* HostProcessPlatform;
@@ -106,10 +107,10 @@ export const make = Effect.gen(function* () {
   const sendBatch = Effect.fn("AnalyticsService.sendBatch")(function* (
     events: ReadonlyArray<BufferedAnalyticsEvent>,
   ) {
-    if (!telemetryConfig.enabled || !identifier) return;
+    if (!telemetryActive || !identifier || Option.isNone(telemetryConfig.posthogKey)) return;
 
     const payload = {
-      api_key: telemetryConfig.posthogKey,
+      api_key: telemetryConfig.posthogKey.value,
       batch: events.map((event) => ({
         event: event.event,
         distinct_id: identifier,
@@ -119,7 +120,7 @@ export const make = Effect.gen(function* () {
           platform: hostPlatform,
           wsl: Option.getOrUndefined(telemetryConfig.wslDistroName),
           arch: hostArchitecture,
-          t3CodeVersion: packageJson.version,
+          sigmaCodeVersion: packageJson.version,
           clientType,
         },
         timestamp: event.capturedAt,
@@ -160,7 +161,7 @@ export const make = Effect.gen(function* () {
 
   const record: AnalyticsService["Service"]["record"] = Effect.fn("AnalyticsService.record")(
     function* (event, properties) {
-      if (!telemetryConfig.enabled || !identifier) return;
+      if (!telemetryActive || !identifier) return;
 
       const enqueueResult = yield* enqueueBufferedEvent(event, properties);
       if (enqueueResult.dropped) {

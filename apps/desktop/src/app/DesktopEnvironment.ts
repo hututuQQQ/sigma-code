@@ -67,7 +67,6 @@ export class DesktopEnvironment extends Context.Service<
     readonly linuxDesktopEntryName: string;
     readonly linuxWmClass: string;
     readonly userDataDirName: string;
-    readonly legacyUserDataDirName: string;
     readonly defaultDesktopSettings: DesktopAppSettings.DesktopSettings;
     readonly runtimeInfo: DesktopRuntimeInfo;
     readonly resolvePickFolderDefaultPath: (rawOptions: unknown) => Option.Option<string>;
@@ -76,7 +75,7 @@ export class DesktopEnvironment extends Context.Service<
   }
 >()("@t3tools/desktop/app/DesktopEnvironment") {}
 
-const APP_BASE_NAME = "T3 Code";
+const APP_BASE_NAME = "Sigma Code";
 
 function resolveDesktopAppStageLabel(input: {
   readonly isDevelopment: boolean;
@@ -97,7 +96,7 @@ function resolveDesktopAppBranding(input: {
   return {
     baseName: APP_BASE_NAME,
     stageLabel,
-    displayName: `${APP_BASE_NAME} (${stageLabel})`,
+    displayName: stageLabel === "Alpha" ? APP_BASE_NAME : `${APP_BASE_NAME} (${stageLabel})`,
   };
 }
 
@@ -147,8 +146,10 @@ const make = Effect.fn("desktop.environment.make")(function* (
       : input.platform === "darwin"
         ? path.join(homeDirectory, "Library", "Application Support")
         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
-  const configuredBaseDir = config.t3Home;
-  const baseDir = Option.getOrElse(configuredBaseDir, () => path.join(homeDirectory, ".t3"));
+  const configuredBaseDir = config.sigmaCodeHome;
+  const baseDir = Option.getOrElse(configuredBaseDir, () =>
+    path.join(homeDirectory, ".sigma", "code"),
+  );
   const rootDir = path.resolve(input.dirname, "../../..");
   const appRoot = input.isPackaged ? input.appPath : rootDir;
   const branding = resolveDesktopAppBranding({
@@ -156,12 +157,9 @@ const make = Effect.fn("desktop.environment.make")(function* (
     appVersion: input.appVersion,
   });
   const displayName = branding.displayName;
-  const stateDir = path.join(
-    baseDir,
-    isDevelopment && Option.isNone(configuredBaseDir) ? "dev" : "userdata",
-  );
-  const userDataDirName = isDevelopment ? "t3code-dev" : "t3code";
-  const legacyUserDataDirName = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+  const stateDir =
+    isDevelopment && Option.isNone(configuredBaseDir) ? path.join(baseDir, "dev") : baseDir;
+  const userDataDirName = isDevelopment ? "sigma-code-dev" : "sigma-code";
   const resourcesPath = input.resourcesPath;
 
   return DesktopEnvironment.of({
@@ -201,12 +199,11 @@ const make = Effect.fn("desktop.environment.make")(function* (
     branding,
     displayName,
     appUserModelId: Option.getOrElse(config.appUserModelIdOverride, () =>
-      isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code",
+      isDevelopment ? "io.github.hututuqqq.sigmacode.dev" : "io.github.hututuqqq.sigmacode",
     ),
-    linuxDesktopEntryName: isDevelopment ? "t3code-dev.desktop" : "t3code.desktop",
-    linuxWmClass: isDevelopment ? "t3code-dev" : "t3code",
+    linuxDesktopEntryName: isDevelopment ? "sigma-code-dev.desktop" : "sigma-code.desktop",
+    linuxWmClass: isDevelopment ? "sigma-code-dev" : "sigma-code",
     userDataDirName,
-    legacyUserDataDirName,
     defaultDesktopSettings: DesktopAppSettings.resolveDefaultDesktopSettings(input.appVersion),
     runtimeInfo: resolveDesktopRuntimeInfo({
       platform: input.platform,

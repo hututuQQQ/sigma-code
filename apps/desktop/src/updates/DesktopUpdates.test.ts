@@ -131,7 +131,7 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
 
   const environmentLayer = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
-    homeDirectory: `/tmp/t3-desktop-updates-home-${process.pid}`,
+    homeDirectory: `/tmp/sigma-code-desktop-updates-home-${process.pid}`,
     platform: "darwin",
     processArch: "x64",
     appVersion: "1.2.3",
@@ -144,9 +144,9 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
       Layer.mergeAll(
         NodeServices.layer,
         DesktopConfig.layerTest({
-          T3CODE_HOME: `/tmp/t3-desktop-updates-test-${process.pid}`,
-          T3CODE_DESKTOP_MOCK_UPDATES: "true",
-          T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",
+          SIGMACODE_HOME: `/tmp/sigma-code-desktop-updates-test-${process.pid}`,
+          SIGMACODE_DESKTOP_MOCK_UPDATES: "true",
+          SIGMACODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",
           ...options.env,
         }),
       ),
@@ -178,9 +178,9 @@ function makeHarness(options: UpdatesHarnessOptions = {}) {
     Layer.provideMerge(settingsLayer),
     Layer.provideMerge(
       DesktopConfig.layerTest({
-        T3CODE_HOME: `/tmp/t3-desktop-updates-test-${process.pid}`,
-        T3CODE_DESKTOP_MOCK_UPDATES: "true",
-        T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",
+        SIGMACODE_HOME: `/tmp/sigma-code-desktop-updates-test-${process.pid}`,
+        SIGMACODE_DESKTOP_MOCK_UPDATES: "true",
+        SIGMACODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",
         ...options.env,
       }),
     ),
@@ -272,6 +272,35 @@ describe("DesktopUpdates", () => {
 
       assert.equal(harness.listenerCount(), 0);
     }).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
+  it.effect("stays disabled when no Sigma update feed is configured", () => {
+    const harness = makeHarness({
+      env: {
+        SIGMACODE_DESKTOP_MOCK_UPDATES: "false",
+      },
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+
+        const state = yield* updates.getState;
+        const disabledReason = yield* updates.disabledReason;
+        assert.equal(state.enabled, false);
+        assert.equal(state.status, "disabled");
+        assert.deepEqual(
+          disabledReason,
+          Option.some("Automatic updates are not available because no update feed is configured."),
+        );
+        assert.deepEqual(harness.feedUrls(), []);
+        assert.equal(harness.listenerCount(), 0);
+
+        yield* TestClock.adjust(Duration.millis(15_000));
+        assert.equal(harness.checkCount(), 0);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
   it.effect("updates and broadcasts state from updater events", () => {

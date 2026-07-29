@@ -15,7 +15,7 @@ const decodeT3ProjectFile = Schema.decodeExit(T3ProjectFileFromJson);
 const NO_SCRIPTS: ReadonlyArray<T3ProjectFileScript> = [];
 
 /**
- * Scripts declared in the project's checked-in `t3.json`, offered in the
+ * Scripts declared in the project's checked-in `sigma.json`, offered in the
  * scripts menu for import. Missing, truncated, or invalid files resolve to
  * an empty list.
  */

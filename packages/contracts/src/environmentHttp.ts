@@ -372,7 +372,7 @@ export const AuthOtherClientSessionsRevokeResult = Schema.Struct({
 export type AuthOtherClientSessionsRevokeResult = typeof AuthOtherClientSessionsRevokeResult.Type;
 
 export class EnvironmentMetadataHttpApi extends HttpApiGroup.make("metadata").add(
-  HttpApiEndpoint.get("descriptor", "/.well-known/t3/environment", {
+  HttpApiEndpoint.get("descriptor", "/.well-known/sigmacode/environment", {
     success: ExecutionEnvironmentDescriptor,
   }),
 ) {}

@@ -11,7 +11,7 @@ import { tracingLayer } from "../features/observability/tracing";
 import * as Persistence from "../persistence/layer";
 
 function configuredRelayUrl(): string {
-  return resolveCloudPublicConfig().relay.url ?? "http://relay.invalid";
+  return resolveCloudPublicConfig().relay.url ?? "";
 }
 
 const httpClientLayer = remoteHttpClientLayer(fetch);

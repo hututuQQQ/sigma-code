@@ -8,15 +8,16 @@ import * as Semaphore from "effect/Semaphore";
 import * as ProcessRunner from "../processRunner.ts";
 
 /**
- * A pinned runtime is an exact `t3@<version>` npm-installed into
- * <baseDir>/runtime/versions/<version>. The boot service points its systemd
- * unit here, and server self-update installs the target version here before
- * switching over — never `npx t3`, whose cache is ephemeral and whose
- * registry fetch at boot would make startup depend on the network.
+ * A pinned runtime is an exact, explicitly configured Sigma Code server npm
+ * package installed into <baseDir>/runtime/versions/<version>. There is no
+ * default package: downstream builds must never fall back to T3's npm
+ * package or another unowned registry artifact.
  */
 
 const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
+export const SIGMA_SERVER_NPM_PACKAGE_ENV = "SIGMACODE_SERVER_NPM_PACKAGE";
+const NPM_PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/u;
 // Boot-service setup and remote self-update share this module but can be
 // constructed in separate layers. Serialize the complete check/install/
 // sentinel transaction across all callers in this process.
@@ -28,15 +29,23 @@ export interface PinnedRuntimePaths {
   readonly sentinelPath: string;
 }
 
+export function configuredSigmaServerNpmPackage(
+  env: Readonly<Record<string, string | undefined>>,
+): string | null {
+  const packageName = env[SIGMA_SERVER_NPM_PACKAGE_ENV]?.trim() ?? "";
+  return NPM_PACKAGE_NAME_PATTERN.test(packageName) ? packageName : null;
+}
+
 export function pinnedRuntimePaths(
   path: Path.Path,
   baseDir: string,
   version: string,
+  packageName: string,
 ): PinnedRuntimePaths {
   const versionDir = path.join(baseDir, PINNED_RUNTIME_DIR, "versions", version);
   return {
     versionDir,
-    entryPath: path.join(versionDir, "node_modules", "t3", "dist", "bin.mjs"),
+    entryPath: path.join(versionDir, "node_modules", ...packageName.split("/"), "dist", "bin.mjs"),
     sentinelPath: path.join(versionDir, ".install-complete"),
   };
 }
@@ -59,8 +68,9 @@ export class PinnedRuntimeInstallError extends Schema.TaggedErrorClass<PinnedRun
 }
 
 /**
- * Installs `t3@<version>` into the pinned runtime directory unless a complete
- * install is already there, and returns its paths. The sentinel is written
+ * Installs the configured Sigma Code server package into the pinned runtime
+ * directory unless a complete install is already there, and returns its
+ * paths. The sentinel is written
  * only after npm exits 0; checking the entry file alone is not enough — npm
  * extracts files before running native builds (node-pty), so a killed
  * install leaves a plausible-looking but broken tree behind.
@@ -69,12 +79,19 @@ export const ensurePinnedRuntimeInstalled = Effect.fn("cloud.pinned_runtime.ensu
   function* (input: {
     readonly baseDir: string;
     readonly version: string;
+    readonly packageName: string;
     readonly fs: FileSystem.FileSystem;
     readonly path: Path.Path;
     readonly runner: ProcessRunner.ProcessRunner["Service"];
   }) {
     const { fs, runner } = input;
-    const paths = pinnedRuntimePaths(input.path, input.baseDir, input.version);
+    const packageName = input.packageName.trim();
+    if (!NPM_PACKAGE_NAME_PATTERN.test(packageName)) {
+      return yield* new PinnedRuntimeInstallError({
+        step: `validating ${SIGMA_SERVER_NPM_PACKAGE_ENV}`,
+      });
+    }
+    const paths = pinnedRuntimePaths(input.path, input.baseDir, input.version, packageName);
 
     return yield* pinnedRuntimeInstallLock.withPermit(
       Effect.gen(function* () {
@@ -103,7 +120,8 @@ export const ensurePinnedRuntimeInstalled = Effect.fn("cloud.pinned_runtime.ensu
           ),
         );
 
-        const installStep = "installing the pinned t3 runtime (this can take a few minutes)";
+        const installStep =
+          "installing the pinned Sigma Code runtime (this can take a few minutes)";
         yield* runner
           .run({
             command: "npm",
@@ -113,7 +131,7 @@ export const ensurePinnedRuntimeInstalled = Effect.fn("cloud.pinned_runtime.ensu
               paths.versionDir,
               "--no-fund",
               "--no-audit",
-              `t3@${input.version}`,
+              `${packageName}@${input.version}`,
             ],
             // Native deps (node-pty) can compile from source on slow boxes; the
             // ProcessRunner default of 60s would kill a healthy install.
@@ -137,7 +155,7 @@ export const ensurePinnedRuntimeInstalled = Effect.fn("cloud.pinned_runtime.ensu
           );
 
         yield* fs
-          .writeFileString(paths.sentinelPath, `${input.version}\n`)
+          .writeFileString(paths.sentinelPath, `${packageName}@${input.version}\n`)
           .pipe(
             Effect.mapError(
               (cause) =>
@@ -158,10 +176,11 @@ export const removePinnedRuntimeInstallation = Effect.fn("cloud.pinned_runtime.r
   function* (input: {
     readonly baseDir: string;
     readonly version: string;
+    readonly packageName: string;
     readonly fs: FileSystem.FileSystem;
     readonly path: Path.Path;
   }) {
-    const paths = pinnedRuntimePaths(input.path, input.baseDir, input.version);
+    const paths = pinnedRuntimePaths(input.path, input.baseDir, input.version, input.packageName);
     yield* pinnedRuntimeInstallLock.withPermit(
       input.fs
         .remove(paths.versionDir, { recursive: true, force: true })

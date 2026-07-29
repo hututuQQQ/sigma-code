@@ -13,7 +13,7 @@ import { managedRelayClientLayer } from "../cloud/managedRelayLayer";
 import { resolveCloudPublicConfig, resolveRelayTracingConfig } from "../cloud/publicConfig";
 
 function configuredRelayUrl(): string {
-  return resolveCloudPublicConfig().relayUrl ?? "http://relay.invalid";
+  return resolveCloudPublicConfig().relayUrl ?? "";
 }
 
 const httpClientLayer = remoteHttpClientLayer((input, init) => globalThis.fetch(input, init));

@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
+    "dev": "node scripts/downstream-disabled.mjs dev",
+    "build": "node scripts/downstream-disabled.mjs build",
+    "preview": "node scripts/downstream-disabled.mjs preview",
     "typecheck": "astro check"
   },
   "dependencies": {

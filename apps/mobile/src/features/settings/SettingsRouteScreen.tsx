@@ -243,7 +243,7 @@ function ConfiguredSettingsRouteScreen() {
       } else {
         Alert.alert(
           "Couldn't finish enabling notifications",
-          "Notification access was granted, but this device could not be registered with T3 Connect. Notifications will start once registration succeeds.",
+          "Notification access was granted, but this device could not be registered with Sigma Connect. Notifications will start once registration succeeds.",
         );
       }
       return;
@@ -273,8 +273,8 @@ function ConfiguredSettingsRouteScreen() {
 
   const promptSignIn = useCallback(() => {
     Alert.alert(
-      "Sign in to T3 Connect",
-      "Live Activity updates require T3 Connect so relay can deliver updates to this device.",
+      "Sign in to Sigma Connect",
+      "Live Activity updates require Sigma Connect so relay can deliver updates to this device.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -346,7 +346,7 @@ function ConfiguredSettingsRouteScreen() {
     } else {
       Alert.alert(
         "Couldn't finish enabling Live Activities",
-        "This device could not be registered with T3 Connect, so Live Activities won't appear yet. They'll start once registration succeeds.",
+        "This device could not be registered with Sigma Connect, so Live Activities won't appear yet. They'll start once registration succeeds.",
       );
     }
   }, [
@@ -368,7 +368,7 @@ function ConfiguredSettingsRouteScreen() {
 
       Alert.alert(
         "Disable notifications",
-        "Notification permission is controlled by iOS. Open Settings to disable notifications for T3 Code.",
+        "Notification permission is controlled by iOS. Open Settings to disable notifications for Sigma Code.",
         [
           { text: "Cancel", style: "cancel" },
           { text: "Open Settings", onPress: () => void Linking.openSettings() },
@@ -470,7 +470,7 @@ function ConfiguredSettingsRouteScreen() {
             />
           </SettingsSection>
           <Text className="px-2 text-sm text-foreground-muted">
-            T3 Code works locally without signing in. Cloud features are optional.
+            Sigma Code works locally without signing in. Cloud features are optional.
           </Text>
         </View>
 

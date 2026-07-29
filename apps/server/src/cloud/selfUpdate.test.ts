@@ -79,19 +79,33 @@ const provideHostRefs = (input: {
     ),
   );
 
-it("recognizes published npm artifacts as swappable entry points", () => {
-  assert.isTrue(SelfUpdate.isPublishedCliEntry("/usr/local/lib/node_modules/t3/dist/bin.mjs"));
+it("recognizes configured Sigma npm artifacts as swappable entry points", () => {
   assert.isTrue(
-    SelfUpdate.isPublishedCliEntry("/home/theo/.npm/_npx/abc123/node_modules/t3/dist/bin.mjs"),
+    SelfUpdate.isPublishedCliEntry(
+      "/usr/local/lib/node_modules/@sigma/code/dist/bin.mjs",
+      "@sigma/code",
+    ),
   );
   assert.isTrue(
     SelfUpdate.isPublishedCliEntry(
-      "C:\\Users\\theo\\AppData\\Roaming\\npm\\node_modules\\t3\\dist\\bin.mjs",
+      "/home/theo/.npm/_npx/abc123/node_modules/@sigma/code/dist/bin.mjs",
+      "@sigma/code",
+    ),
+  );
+  assert.isTrue(
+    SelfUpdate.isPublishedCliEntry(
+      "C:\\Users\\theo\\AppData\\Roaming\\npm\\node_modules\\@sigma\\code\\dist\\bin.mjs",
+      "@sigma/code",
     ),
   );
   // Dev checkouts and the desktop bundle run apps/server/dist directly.
-  assert.isFalse(SelfUpdate.isPublishedCliEntry("/home/theo/dev/t3/apps/server/dist/bin.mjs"));
-  assert.isFalse(SelfUpdate.isPublishedCliEntry(""));
+  assert.isFalse(
+    SelfUpdate.isPublishedCliEntry(
+      "/home/theo/dev/sigma-code/apps/server/dist/bin.mjs",
+      "@sigma/code",
+    ),
+  );
+  assert.isFalse(SelfUpdate.isPublishedCliEntry("", "@sigma/code"));
 });
 
 it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
@@ -114,7 +128,7 @@ it.layer(NodeServices.layer)("resolveServerSelfUpdateCapability", (it) => {
       path.join(unitDir, "t3code.service"),
       renderBootServiceUnit({
         nodePath: NODE_PATH,
-        t3EntryPath: entryPath,
+        cliEntryPath: entryPath,
         baseDir: path.join(home, ".t3"),
         logPath: path.join(home, ".t3", "userdata", "logs", "boot-service.log"),
         unitPath: path.join(unitDir, "t3code.service"),
@@ -280,7 +294,7 @@ it.layer(NodeServices.layer)("ServerSelfUpdate.update", (it) => {
         path.join(unitDir, "t3code.service"),
         renderBootServiceUnit({
           nodePath: NODE_PATH,
-          t3EntryPath: entryPath,
+          cliEntryPath: entryPath,
           baseDir,
           logPath: path.join(baseDir, "userdata", "logs", "boot-service.log"),
           unitPath: path.join(unitDir, "t3code.service"),

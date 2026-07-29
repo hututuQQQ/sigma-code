@@ -14,26 +14,14 @@ const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 
 const AppPackageMetadata = Schema.Struct({
-  t3codeCommitHash: Schema.optional(Schema.String),
+  sigmaCodeCommitHash: Schema.optional(Schema.String),
 });
 const decodeAppPackageMetadata = Schema.decodeEffect(Schema.fromJsonString(AppPackageMetadata));
-
-export class DesktopUserDataPathResolutionError extends Schema.TaggedErrorClass<DesktopUserDataPathResolutionError>()(
-  "DesktopUserDataPathResolutionError",
-  {
-    legacyPath: Schema.String,
-    cause: Schema.Defect(),
-  },
-) {
-  override get message(): string {
-    return `Failed to inspect legacy desktop user-data path at "${this.legacyPath}".`;
-  }
-}
 
 export class DesktopAppIdentity extends Context.Service<
   DesktopAppIdentity,
   {
-    readonly resolveUserDataPath: Effect.Effect<string, DesktopUserDataPathResolutionError>;
+    readonly resolveUserDataPath: Effect.Effect<string>;
     readonly configure: Effect.Effect<void>;
   }
 >()("@t3tools/desktop/app/DesktopAppIdentity") {}
@@ -60,7 +48,9 @@ export const make = Effect.gen(function* () {
       onSome: (value) =>
         decodeAppPackageMetadata(value).pipe(
           Effect.map((parsed) =>
-            Option.fromNullishOr(parsed.t3codeCommitHash).pipe(Option.flatMap(normalizeCommitHash)),
+            Option.fromNullishOr(parsed.sigmaCodeCommitHash).pipe(
+              Option.flatMap(normalizeCommitHash),
+            ),
           ),
           Effect.orElseSucceed(() => Option.none<string>()),
         ),
@@ -90,24 +80,9 @@ export const make = Effect.gen(function* () {
     return commitHash;
   });
 
-  const resolveUserDataPath = Effect.gen(function* () {
-    const legacyPath = environment.path.join(
-      environment.appDataDirectory,
-      environment.legacyUserDataDirName,
-    );
-    const legacyPathExists = yield* fileSystem.exists(legacyPath).pipe(
-      Effect.mapError(
-        (cause) =>
-          new DesktopUserDataPathResolutionError({
-            legacyPath,
-            cause,
-          }),
-      ),
-    );
-    return legacyPathExists
-      ? legacyPath
-      : environment.path.join(environment.appDataDirectory, environment.userDataDirName);
-  }).pipe(Effect.withSpan("desktop.appIdentity.resolveUserDataPath"));
+  const resolveUserDataPath = Effect.succeed(
+    environment.path.join(environment.appDataDirectory, environment.userDataDirName),
+  ).pipe(Effect.withSpan("desktop.appIdentity.resolveUserDataPath"));
 
   const configure = Effect.gen(function* () {
     const commitHash = yield* resolveAboutCommitHash;
@@ -116,6 +91,9 @@ export const make = Effect.gen(function* () {
       applicationName: environment.displayName,
       applicationVersion: environment.appVersion,
       version: Option.getOrElse(commitHash, () => "unknown"),
+      copyright: "Copyright © 2026 hututuQQQ and Sigma Code contributors",
+      credits:
+        "Sigma Code is an independently maintained downstream fork of T3 Code, distributed under the MIT License.",
     });
 
     if (environment.platform === "win32") {

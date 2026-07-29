@@ -14,6 +14,8 @@ import {
   removePinnedRuntimeInstallation,
 } from "./pinnedRuntime.ts";
 
+const TEST_PACKAGE_NAME = "@sigma/code";
+
 it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
   it.effect("serializes concurrent installs of the same runtime", () =>
     Effect.gen(function* () {
@@ -22,7 +24,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-runtime-test-" });
       const installStarted = yield* Deferred.make<void>();
       const allowInstallToFinish = yield* Deferred.make<void>();
-      const paths = pinnedRuntimePaths(path, baseDir, "0.0.29");
+      const paths = pinnedRuntimePaths(path, baseDir, "0.0.29", TEST_PACKAGE_NAME);
       let npmRuns = 0;
 
       const runner = ProcessRunner.ProcessRunner.of({
@@ -48,6 +50,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       const install = ensurePinnedRuntimeInstalled({
         baseDir,
         version: "0.0.29",
+        packageName: TEST_PACKAGE_NAME,
         fs,
         path,
         runner,
@@ -76,7 +79,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-runtime-test-" });
       const installStarted = yield* Deferred.make<void>();
       const allowInstallToFinish = yield* Deferred.make<void>();
-      const paths = pinnedRuntimePaths(path, baseDir, "0.0.30");
+      const paths = pinnedRuntimePaths(path, baseDir, "0.0.30", TEST_PACKAGE_NAME);
       const runner = ProcessRunner.ProcessRunner.of({
         run: (_input) =>
           Effect.gen(function* () {
@@ -101,6 +104,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
         ensurePinnedRuntimeInstalled({
           baseDir,
           version: "0.0.30",
+          packageName: TEST_PACKAGE_NAME,
           fs,
           path,
           runner,
@@ -112,6 +116,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
         removePinnedRuntimeInstallation({
           baseDir,
           version: "0.0.30",
+          packageName: TEST_PACKAGE_NAME,
           fs,
           path,
         }),
