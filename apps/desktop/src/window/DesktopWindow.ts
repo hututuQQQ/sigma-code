@@ -6,6 +6,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
 import * as Electron from "electron";
+import * as NodeOS from "node:os";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -25,6 +26,8 @@ const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
+const TRANSPARENT_WINDOW_BACKGROUND = "#00000000";
+const WINDOWS_SYSTEM_BACKDROP_MINIMUM_BUILD = 22_621;
 const DEVELOPMENT_RETRYABLE_LOAD_ERROR_CODES = new Set([
   -2, // ERR_FAILED
   -7, // ERR_TIMED_OUT
@@ -38,6 +41,11 @@ const DEVELOPMENT_RETRYABLE_LOAD_ERROR_CODES = new Set([
 type WindowTitleBarOptions = Pick<
   Electron.BrowserWindowConstructorOptions,
   "titleBarOverlay" | "titleBarStyle" | "trafficLightPosition"
+>;
+
+type WindowBackdropOptions = Pick<
+  Electron.BrowserWindowConstructorOptions,
+  "backgroundColor" | "backgroundMaterial" | "vibrancy" | "visualEffectState"
 >;
 
 type DesktopWindowRuntimeServices =
@@ -103,6 +111,40 @@ function getInitialWindowBackgroundColor(shouldUseDarkColors: boolean): string {
   return shouldUseDarkColors ? "#0a0a0a" : "#ffffff";
 }
 
+export function supportsWindowsSystemBackdrop(
+  platform: NodeJS.Platform,
+  systemRelease: string,
+): boolean {
+  if (platform !== "win32") {
+    return false;
+  }
+  const build = Number.parseInt(systemRelease.split(".")[2] ?? "", 10);
+  return Number.isFinite(build) && build >= WINDOWS_SYSTEM_BACKDROP_MINIMUM_BUILD;
+}
+
+export function getWindowBackdropOptions(input: {
+  readonly platform: NodeJS.Platform;
+  readonly shouldUseDarkColors: boolean;
+  readonly systemRelease: string;
+}): WindowBackdropOptions {
+  if (supportsWindowsSystemBackdrop(input.platform, input.systemRelease)) {
+    return {
+      backgroundColor: TRANSPARENT_WINDOW_BACKGROUND,
+      backgroundMaterial: "acrylic",
+    };
+  }
+  if (input.platform === "darwin") {
+    return {
+      backgroundColor: TRANSPARENT_WINDOW_BACKGROUND,
+      vibrancy: "under-window",
+      visualEffectState: "active",
+    };
+  }
+  return {
+    backgroundColor: getInitialWindowBackgroundColor(input.shouldUseDarkColors),
+  };
+}
+
 type DisplayBounds = Pick<Electron.Rectangle, "x" | "y" | "width" | "height">;
 
 function windowFitsWithinDisplay(
@@ -145,12 +187,20 @@ export function resolveInitialMainWindowBounds(
 // A self-contained "Connecting to WSL" splash, shown immediately in wsl-only
 // mode while the WSL backend (which serves the renderer) cold-boots. Inlined as
 // a data URL so it needs no bundled asset and no backend — pure CSS, no JS.
-function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
-  const background = getInitialWindowBackgroundColor(shouldUseDarkColors);
+function buildConnectingSplashDataUrl(
+  shouldUseDarkColors: boolean,
+  transparentBackdrop: boolean,
+): string {
+  const background = transparentBackdrop
+    ? "transparent"
+    : getInitialWindowBackgroundColor(shouldUseDarkColors);
+  const tint = shouldUseDarkColors ? "rgba(10,14,22,0.58)" : "rgba(248,250,255,0.58)";
+  const highlight = shouldUseDarkColors ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.62)";
+  const border = shouldUseDarkColors ? "rgba(255,255,255,0.10)" : "rgba(63,75,98,0.14)";
   const label = shouldUseDarkColors ? "#9ca3af" : "#6b7280";
   const accent = shouldUseDarkColors ? "#f8fafc" : "#1f2937";
   const track = shouldUseDarkColors ? "rgba(248,250,252,0.18)" : "rgba(31,41,55,0.18)";
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%;background:transparent}body{box-sizing:border-box;background:radial-gradient(circle at 20% 0%,${highlight},transparent 46%),linear-gradient(${tint},${tint}),${background};border:1px solid ${border};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
@@ -212,7 +262,13 @@ function syncWindowAppearance(
       return;
     }
 
-    window.setBackgroundColor(getInitialWindowBackgroundColor(shouldUseDarkColors));
+    window.setBackgroundColor(
+      getWindowBackdropOptions({
+        platform,
+        shouldUseDarkColors,
+        systemRelease: NodeOS.release(),
+      }).backgroundColor ?? getInitialWindowBackgroundColor(shouldUseDarkColors),
+    );
     const { titleBarOverlay } = getWindowTitleBarOptions(shouldUseDarkColors, platform);
     if (typeof titleBarOverlay === "object") {
       window.setTitleBarOverlay(titleBarOverlay);
@@ -318,6 +374,11 @@ export const make = Effect.gen(function* () {
     if (persistedBounds !== null && initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE) {
       yield* logWindowWarning("saved main window bounds could not be restored; using defaults");
     }
+    const windowBackdropOptions = getWindowBackdropOptions({
+      platform: environment.platform,
+      shouldUseDarkColors,
+      systemRelease: NodeOS.release(),
+    });
     const window = yield* electronWindow.create({
       ...initialBounds,
       minWidth: 840,
@@ -325,7 +386,7 @@ export const make = Effect.gen(function* () {
       show: false,
       autoHideMenuBar: true,
       ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
-      backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      ...windowBackdropOptions,
       ...iconOption,
       title: environment.displayName,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
@@ -690,6 +751,11 @@ export const make = Effect.gen(function* () {
     if (Option.isSome(existingWindow)) return;
 
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
+    const splashBackdropOptions = getWindowBackdropOptions({
+      platform: environment.platform,
+      shouldUseDarkColors,
+      systemRelease: NodeOS.release(),
+    });
     const splash = yield* electronWindow.create({
       width: 360,
       height: 220,
@@ -701,7 +767,7 @@ export const make = Effect.gen(function* () {
       center: true,
       show: false,
       skipTaskbar: false,
-      backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      ...splashBackdropOptions,
       title: environment.displayName,
       webPreferences: {
         contextIsolation: true,
@@ -718,7 +784,12 @@ export const make = Effect.gen(function* () {
         splash.show();
       }
     });
-    void splash.loadURL(buildConnectingSplashDataUrl(shouldUseDarkColors));
+    void splash.loadURL(
+      buildConnectingSplashDataUrl(
+        shouldUseDarkColors,
+        splashBackdropOptions.backgroundColor === TRANSPARENT_WINDOW_BACKGROUND,
+      ),
+    );
     yield* logWindowInfo("connecting splash shown");
   }).pipe(
     // The splash is best-effort UX — never let it fail startup.

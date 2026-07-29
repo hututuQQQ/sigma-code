@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as url from "node:url";
-import * as zlib from "node:zlib";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
+import * as NodeZlib from "node:zlib";
 
-const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
-const sourcePath = path.join(repoRoot, "assets", "sigma-code-mark.png");
+const repoRoot = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
+const sourcePath = NodePath.join(repoRoot, "assets", "sigma-code-mark.png");
 const checkOnly = process.argv.includes("--check");
 
 const crcTable = new Uint32Array(256);
@@ -49,7 +49,7 @@ function encodePng(width, height, rgba) {
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     pngChunk("IHDR", header),
-    pngChunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
+    pngChunk("IDAT", NodeZlib.deflateSync(raw, { level: 9 })),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
 }
@@ -106,7 +106,7 @@ function decodePng(buffer) {
 
   const channels = colorType === 6 ? 4 : 3;
   const stride = width * channels;
-  const filtered = zlib.inflateSync(Buffer.concat(compressed));
+  const filtered = NodeZlib.inflateSync(Buffer.concat(compressed));
   const pixels = Buffer.alloc(stride * height);
   let inputOffset = 0;
   for (let row = 0; row < height; row += 1) {
@@ -232,12 +232,21 @@ function encodeIcns(images) {
   return Buffer.concat([header, ...entries]);
 }
 
-const sourceBytes = fs.readFileSync(sourcePath);
+const sourceBytes = NodeFS.readFileSync(sourcePath);
 const source = decodePng(sourceBytes);
+const transparent = transparentBrandMark(source);
+const transparentBytes = encodePng(source.width, source.height, transparent.rgba);
+const opaquePngCache = new Map();
+const opaquePng = (size) => {
+  if (!opaquePngCache.has(size)) {
+    opaquePngCache.set(size, encodePng(size, size, resizeRgba(source, size, size)));
+  }
+  return opaquePngCache.get(size);
+};
 const pngCache = new Map();
 const png = (size) => {
   if (!pngCache.has(size)) {
-    pngCache.set(size, encodePng(size, size, resizeRgba(source, size, size)));
+    pngCache.set(size, encodePng(size, size, resizeRgba(transparent, size, size)));
   }
   return pngCache.get(size);
 };
@@ -256,7 +265,12 @@ for (const relativePath of [
   "assets/nightly/nightly-macos-1024.png",
   "assets/nightly/nightly-universal-1024.png",
 ]) {
-  add(relativePath, png(1024));
+  // App Store icons cannot contain an alpha channel. Keep the legacy iOS and
+  // universal exports opaque while every logo-layer/desktop/web asset uses the
+  // transparent mark.
+  const requiresOpaqueCanvas =
+    relativePath.includes("-ios-") || relativePath.includes("-universal-");
+  add(relativePath, requiresOpaqueCanvas ? opaquePng(1024) : png(1024));
 }
 
 for (const directory of ["assets/prod", "assets/dev", "assets/nightly"]) {
@@ -281,7 +295,7 @@ for (const directory of ["assets/prod", "assets/dev", "assets/nightly"]) {
     `${directory}/${windowsName}`,
     encodeIco([16, 24, 32, 48, 64, 128, 256].map((size) => ({ size, png: png(size) }))),
   );
-  add(`${directory}/app-icon.icon/Assets/sigma-code-mark.png`, sourceBytes);
+  add(`${directory}/app-icon.icon/Assets/sigma-code-mark.png`, transparentBytes);
 }
 
 add("apps/desktop/resources/icon.png", png(1024));
@@ -306,13 +320,12 @@ add(
 add("apps/web/public/apple-touch-icon.png", png(180));
 add("apps/web/public/favicon-16x16.png", png(16));
 add("apps/web/public/favicon-32x32.png", png(32));
-add("apps/web/public/sigma-code-mark.png", sourceBytes);
+add("apps/web/public/sigma-code-mark.png", transparentBytes);
 add(
   "apps/web/public/favicon.ico",
   encodeIco([16, 32, 48, 64, 128, 256].map((size) => ({ size, png: png(size) }))),
 );
 
-const transparent = transparentBrandMark(source);
 const notification = transparentBrandMark(source, true);
 add(
   "apps/mobile/assets/android-icon-mark.png",
@@ -326,14 +339,14 @@ add("apps/mobile/assets/widget/SigmaMark.png", png(256));
 
 const stale = [];
 for (const [relativePath, contents] of generated) {
-  const absolutePath = path.join(repoRoot, relativePath);
+  const absolutePath = NodePath.join(repoRoot, relativePath);
   if (checkOnly) {
-    if (!fs.existsSync(absolutePath) || !fs.readFileSync(absolutePath).equals(contents)) {
+    if (!NodeFS.existsSync(absolutePath) || !NodeFS.readFileSync(absolutePath).equals(contents)) {
       stale.push(relativePath);
     }
   } else {
-    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-    fs.writeFileSync(absolutePath, contents);
+    NodeFS.mkdirSync(NodePath.dirname(absolutePath), { recursive: true });
+    NodeFS.writeFileSync(absolutePath, contents);
   }
 }
 

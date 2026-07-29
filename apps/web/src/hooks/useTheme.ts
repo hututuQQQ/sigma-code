@@ -161,6 +161,12 @@ function resolveBrowserChromeSurface(): HTMLElement {
 
 export function syncBrowserChromeTheme() {
   if (typeof document === "undefined" || typeof getComputedStyle === "undefined") return;
+  if (typeof window !== "undefined" && window.desktopBridge) {
+    document.documentElement.style.removeProperty("background-color");
+    document.body.style.removeProperty("background-color");
+    document.querySelector<HTMLMetaElement>(DYNAMIC_THEME_COLOR_SELECTOR)?.remove();
+    return;
+  }
   const surfaceColor = normalizeThemeColor(
     getComputedStyle(resolveBrowserChromeSurface()).backgroundColor,
   );
@@ -177,6 +183,7 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   if (typeof document === "undefined" || typeof window === "undefined") return;
   const systemDark = theme === "system" ? getSystemDark() : false;
   if (lastAppliedTheme?.theme === theme && lastAppliedTheme.systemDark === systemDark) {
+    syncBrowserChromeTheme();
     syncDesktopTheme(theme);
     return;
   }

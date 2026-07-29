@@ -367,6 +367,64 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
   });
 
 describe("DesktopWindow", () => {
+  it("uses native translucent backdrops only where the platform supports them", () => {
+    assert.deepEqual(
+      DesktopWindow.getWindowBackdropOptions({
+        platform: "win32",
+        shouldUseDarkColors: false,
+        systemRelease: "10.0.22621",
+      }),
+      {
+        backgroundColor: "#00000000",
+        backgroundMaterial: "acrylic",
+      },
+    );
+    assert.deepEqual(
+      DesktopWindow.getWindowBackdropOptions({
+        platform: "win32",
+        shouldUseDarkColors: true,
+        systemRelease: "10.0.26200",
+      }),
+      {
+        backgroundColor: "#00000000",
+        backgroundMaterial: "acrylic",
+      },
+    );
+    assert.deepEqual(
+      DesktopWindow.getWindowBackdropOptions({
+        platform: "darwin",
+        shouldUseDarkColors: false,
+        systemRelease: "25.0.0",
+      }),
+      {
+        backgroundColor: "#00000000",
+        vibrancy: "under-window",
+        visualEffectState: "active",
+      },
+    );
+  });
+
+  it("keeps an opaque fallback when the native backdrop is unavailable", () => {
+    assert.isFalse(DesktopWindow.supportsWindowsSystemBackdrop("win32", "10.0.22000"));
+    assert.isFalse(DesktopWindow.supportsWindowsSystemBackdrop("linux", "10.0.26200"));
+    assert.deepEqual(
+      DesktopWindow.getWindowBackdropOptions({
+        platform: "win32",
+        shouldUseDarkColors: true,
+        systemRelease: "10.0.22000",
+      }),
+      { backgroundColor: "#0a0a0a" },
+    );
+    assert.deepEqual(
+      DesktopWindow.getWindowBackdropOptions({
+        platform: "linux",
+        shouldUseDarkColors: false,
+        systemRelease: "6.8.0",
+      }),
+      { backgroundColor: "#ffffff" },
+    );
+  });
+
   it("restores bounds only when the window fits within a connected display", () => {
     const persistedBounds = { x: 2040, y: 80, width: 1320, height: 880 };
     const displays = [
