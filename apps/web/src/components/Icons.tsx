@@ -211,6 +211,17 @@ export const GrokIcon: Icon = ({ className, ...props }) => (
   </svg>
 );
 
+/**
+ * The canonical Sigma mark is maintained by the Sigma core repository.
+ * Keep this as an image-backed icon so the picker uses that exact artwork
+ * instead of a downstream approximation.
+ */
+export const SigmaIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 512 512" fill="none">
+    <image href="/sigma-code-mark.png" width="512" height="512" />
+  </svg>
+);
+
 export const TraeIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="currentColor">
     {/* Back rectangle: left strip + bottom strip drawn separately — empty bottom-left corner is the gap between them */}
