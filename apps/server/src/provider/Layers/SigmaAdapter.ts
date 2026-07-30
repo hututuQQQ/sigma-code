@@ -1,5 +1,7 @@
 import { ProviderDriverKind, ProviderInstanceId, type SigmaSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
@@ -19,19 +21,39 @@ import type { SigmaAdapterShape } from "../Services/SigmaAdapter.ts";
 
 const SIGMA_PROVIDER = ProviderDriverKind.make("sigma");
 const SIGMA_INSTANCE = ProviderInstanceId.make("sigma");
+const SIGMA_FAILURE_MESSAGE = "Sigma Runtime failed before completing the turn.";
+const SigmaFailureMeta = Schema.Struct({
+  "sigma.outcome": Schema.Literals(["recoverable_failure", "fatal"]),
+  "sigma.message": Schema.optional(Schema.String),
+});
+const decodeSigmaFailureMeta = Schema.decodeUnknownOption(SigmaFailureMeta);
 
 function sigmaModeId(interactionMode: "default" | "plan" | undefined): string {
   return interactionMode === "plan" ? "analyze" : "change";
 }
 
-function sigmaPrompt(input: {
+export function sigmaPromptFailure(
+  response: EffectAcpSchema.PromptResponse,
+): EffectAcpErrors.AcpRequestError | undefined {
+  const decoded = decodeSigmaFailureMeta(response._meta);
+  if (Option.isNone(decoded)) return undefined;
+  const message = decoded.value["sigma.message"]?.trim() || SIGMA_FAILURE_MESSAGE;
+  return EffectAcpErrors.AcpRequestError.internalError(message, {
+    "sigma.outcome": decoded.value["sigma.outcome"],
+  });
+}
+
+const sigmaPrompt = Effect.fn("SigmaAdapter.sigmaPrompt")(function* (input: {
   readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
   readonly sessionId: string;
   readonly prompt: ReadonlyArray<EffectAcpSchema.ContentBlock>;
   readonly steering: boolean;
-}): Effect.Effect<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError> {
+}): Effect.fn.Return<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError> {
   if (!input.steering) {
-    return input.runtime.prompt({ prompt: input.prompt });
+    const response = yield* input.runtime.prompt({ prompt: input.prompt });
+    const failure = sigmaPromptFailure(response);
+    if (failure) return yield* failure;
+    return response;
   }
 
   const text = input.prompt
@@ -39,16 +61,13 @@ function sigmaPrompt(input: {
     .join("")
     .trim();
   if (!text || input.prompt.some((block) => block.type !== "text")) {
-    return Effect.fail(
-      EffectAcpErrors.AcpRequestError.invalidParams(
-        "Sigma steering currently accepts text content only.",
-      ),
+    return yield* EffectAcpErrors.AcpRequestError.invalidParams(
+      "Sigma steering currently accepts text content only.",
     );
   }
-  return input.runtime
-    .request("_sigma/steer", { sessionId: input.sessionId, text })
-    .pipe(Effect.as({ stopReason: "end_turn" as const }));
-}
+  yield* input.runtime.request("_sigma/steer", { sessionId: input.sessionId, text });
+  return { stopReason: "end_turn" };
+});
 
 const SIGMA_ACP_PROFILE: AcpAdapterProfile = {
   provider: SIGMA_PROVIDER,
