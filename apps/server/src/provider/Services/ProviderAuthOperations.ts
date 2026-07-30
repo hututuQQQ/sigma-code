@@ -29,7 +29,6 @@ import { ProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
 
 interface AuthOperation {
   readonly operationId: ProviderAuthOperationId;
-  readonly instance: ProviderInstance;
   readonly connectionId: string;
   readonly scopeKey: string;
   readonly responses: Queue.Queue<ProviderAuthCapabilityInput>;
@@ -73,7 +72,6 @@ function isEphemeralUrlEvent(event: ProviderAuthOperationEvent): boolean {
 
 const makeOperation = Effect.fn("ProviderAuthOperations.makeOperation")(function* (input: {
   readonly operationId: ProviderAuthOperationId;
-  readonly instance: ProviderInstance;
   readonly connectionId: string;
   readonly scopeKey: string;
 }) {
@@ -169,6 +167,21 @@ export const make = Effect.gen(function* () {
     return connection;
   });
 
+  const refreshSharedScope = Effect.fn("ProviderAuthOperations.refreshSharedScope")(function* (
+    connectionId: string,
+    scopeKey: string,
+  ) {
+    const instances = yield* registry.listInstances;
+    yield* Effect.forEach(
+      instances,
+      (instance) =>
+        instance.auth?.scopeKey(connectionId) === scopeKey
+          ? instance.snapshot.refresh.pipe(Effect.ignore)
+          : Effect.void,
+      { concurrency: "unbounded", discard: true },
+    );
+  });
+
   const releaseScope = (scopeKey: string, operationId: ProviderAuthOperationId) =>
     mutationLock.withPermits(1)(
       Ref.update(activeScopes, (current) => {
@@ -222,7 +235,6 @@ export const make = Effect.gen(function* () {
         const operationId: ProviderAuthOperationId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
         const operation = yield* makeOperation({
           operationId,
-          instance,
           connectionId: input.connectionId,
           scopeKey,
         });
@@ -265,7 +277,7 @@ export const make = Effect.gen(function* () {
               }
               const events = yield* Ref.get(operation.events);
               if (events.some((event) => event.type === "completed")) {
-                yield* operation.instance.snapshot.refresh.pipe(Effect.ignore);
+                yield* refreshSharedScope(operation.connectionId, operation.scopeKey);
               }
             }),
           ),
@@ -355,6 +367,7 @@ export const make = Effect.gen(function* () {
           );
         }
         yield* capability.logout(input.connectionId).pipe(Effect.scoped);
+        yield* refreshSharedScope(input.connectionId, scopeKey);
       }),
     );
 

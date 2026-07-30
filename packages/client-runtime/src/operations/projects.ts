@@ -1,13 +1,13 @@
 import type {
   CommandId,
   EnvironmentId,
+  ModelSelection,
   OrchestrationCommand,
   ProjectId,
   SourceControlDiscoveryResult,
   SourceControlProviderKind,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
-import { DEFAULT_SIGMA_SUBSCRIPTION_MODEL, ProviderInstanceId } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
@@ -207,6 +207,7 @@ export function buildProjectCreateCommand(input: {
   readonly projectId: ProjectId;
   readonly workspaceRoot: string;
   readonly createdAt: string;
+  readonly defaultModelSelection: ModelSelection | null;
 }): Extract<OrchestrationCommand, { type: "project.create" }> {
   return {
     type: "project.create",
@@ -215,10 +216,7 @@ export function buildProjectCreateCommand(input: {
     title: inferProjectTitleFromPath(input.workspaceRoot),
     workspaceRoot: input.workspaceRoot,
     createWorkspaceRootIfMissing: true,
-    defaultModelSelection: {
-      instanceId: ProviderInstanceId.make("sigma"),
-      model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
-    },
+    defaultModelSelection: input.defaultModelSelection,
     createdAt: input.createdAt,
   };
 }

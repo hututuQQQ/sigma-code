@@ -53,9 +53,17 @@ function mergeNoProxy(environment: NodeJS.ProcessEnv): string {
  * during startup. One malformed value can therefore disable an otherwise valid
  * HTTPS proxy before Sigma reaches the ChatGPT token endpoint.
  */
-export function resolveSigmaProcessEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function resolveSigmaProcessEnvironment(
+  environment: NodeJS.ProcessEnv,
+  options?: {
+    readonly useDesktopSystemProxy?: boolean;
+  },
+): NodeJS.ProcessEnv {
   const next = { ...environment };
-  const desktopSystemProxy = supportedProxyUrl(environment[DESKTOP_SYSTEM_PROXY_ENV]);
+  const desktopSystemProxy =
+    options?.useDesktopSystemProxy === true
+      ? supportedProxyUrl(environment[DESKTOP_SYSTEM_PROXY_ENV])
+      : undefined;
   const allProxy =
     firstSupportedProxy(environment, ["ALL_PROXY", "all_proxy"]) ?? desktopSystemProxy;
   const httpsProxy = firstSupportedProxy(environment, ["HTTPS_PROXY", "https_proxy"]) ?? allProxy;
@@ -65,6 +73,7 @@ export function resolveSigmaProcessEnvironment(environment: NodeJS.ProcessEnv): 
   for (const name of PROXY_ENV_NAMES) {
     delete next[name];
   }
+  delete next[DESKTOP_SYSTEM_PROXY_ENV];
   delete next.NO_PROXY;
   delete next.no_proxy;
 

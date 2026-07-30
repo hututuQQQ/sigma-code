@@ -15,6 +15,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import type { ProviderAuthCapability, ProviderAuthCapabilityEvent } from "./ProviderDriver.ts";
 import { collectStreamAsString } from "./providerSnapshot.ts";
 import { resolveSigmaBinaryPath } from "./acp/SigmaAcpSupport.ts";
+import { resolveSigmaProcessEnvironment } from "./SigmaProxyEnvironment.ts";
 
 export const SIGMA_CODEX_AUTH_CONNECTION_ID = "openai-codex";
 
@@ -464,7 +465,12 @@ export function makeSigmaPiAuthCapability(input: {
   readonly environment: NodeJS.ProcessEnv;
   readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
 }): ProviderAuthCapability {
-  const directory = readSigmaAuthConnections(input.settings, input.environment).pipe(
+  const directoryEnvironment = resolveSigmaProcessEnvironment(input.environment);
+  const environmentForConnection = (connectionId: string) =>
+    resolveSigmaProcessEnvironment(input.environment, {
+      useDesktopSystemProxy: connectionId === SIGMA_CODEX_AUTH_CONNECTION_ID,
+    });
+  const directory = readSigmaAuthConnections(input.settings, directoryEnvironment).pipe(
     Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, input.spawner),
   );
 
@@ -474,7 +480,8 @@ export function makeSigmaPiAuthCapability(input: {
       if (!findLoginMethod(connections, operation.connectionId, operation.loginMethod)) {
         return yield* unsupportedConnection();
       }
-      const binaryPath = resolveSigmaBinaryPath(input.settings, input.environment);
+      const commandEnvironment = environmentForConnection(operation.connectionId);
+      const binaryPath = resolveSigmaBinaryPath(input.settings, commandEnvironment);
       const args = [
         "auth",
         "login",
@@ -484,11 +491,11 @@ export function makeSigmaPiAuthCapability(input: {
         "--json",
       ];
       const spawnCommand = yield* resolveSpawnCommand(binaryPath, args, {
-        env: input.environment,
+        env: commandEnvironment,
       });
       const child = yield* input.spawner.spawn(
         ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-          env: input.environment,
+          env: commandEnvironment,
           shell: spawnCommand.shell,
           stderr: "pipe",
           stdout: "pipe",
@@ -548,7 +555,7 @@ export function makeSigmaPiAuthCapability(input: {
       if (exitCode !== 0 || !completedEvent) return;
       const verifiedConnection = yield* readSigmaProviderAuthConnection(
         input.settings,
-        input.environment,
+        directoryEnvironment,
         operation.connectionId,
       ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, input.spawner));
       if (verifiedConnection?.status !== "authenticated") {
@@ -581,7 +588,7 @@ export function makeSigmaPiAuthCapability(input: {
       if (!connections.some((connection) => connection.id === connectionId)) {
         return yield* unsupportedConnection();
       }
-      const result = yield* runCollected(input.settings, input.environment, [
+      const result = yield* runCollected(input.settings, environmentForConnection(connectionId), [
         "auth",
         "logout",
         connectionId,

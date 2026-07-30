@@ -218,6 +218,8 @@ export function ProviderAuthLoginFlow(props: {
       }
       if (event.type === "completed") {
         terminalRef.current = true;
+        operationIdRef.current = null;
+        setOperationId(null);
         void (async () => {
           await refreshProviders({
             environmentId: props.environmentId,

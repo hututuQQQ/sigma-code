@@ -14,6 +14,7 @@ import type * as EffectAcpSchema from "effect-acp/schema";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
+import { resolveSigmaProcessEnvironment } from "../SigmaProxyEnvironment.ts";
 
 const SIGMA_DRIVER_KIND = ProviderDriverKind.make("sigma");
 const DEFAULT_SIGMA_MODEL = DEFAULT_SIGMA_SUBSCRIPTION_MODEL;
@@ -65,11 +66,17 @@ export function buildSigmaAcpSpawnInput(
   environment?: NodeJS.ProcessEnv,
   modelSelection?: ModelSelection,
 ): AcpSessionRuntime.AcpSpawnInput {
+  const spawnEnvironment =
+    environment === undefined
+      ? undefined
+      : resolveSigmaProcessEnvironment(environment, {
+          useDesktopSystemProxy: modelSelection?.model.startsWith("openai-codex/") === true,
+        });
   return {
     command: resolveSigmaBinaryPath(settings, environment),
     args: ["acp", ...(allowsUnpricedCosts(modelSelection) ? ["--allow-unpriced-costs"] : [])],
     cwd,
-    ...(environment === undefined ? {} : { env: environment }),
+    ...(spawnEnvironment === undefined ? {} : { env: spawnEnvironment }),
   };
 }
 

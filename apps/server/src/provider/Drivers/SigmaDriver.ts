@@ -88,9 +88,8 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
-      const processEnv = resolveSigmaProcessEnvironment(
-        mergeProviderInstanceEnvironment(environment),
-      );
+      const instanceEnvironment = mergeProviderInstanceEnvironment(environment);
+      const processEnv = resolveSigmaProcessEnvironment(instanceEnvironment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
         instanceId,
@@ -108,14 +107,14 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
       });
 
       const adapter = yield* makeSigmaAdapter(effectiveConfig, {
-        environment: processEnv,
+        environment: instanceEnvironment,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
         instanceId,
       });
-      const textGeneration = yield* makeSigmaTextGeneration(effectiveConfig, processEnv);
+      const textGeneration = yield* makeSigmaTextGeneration(effectiveConfig, instanceEnvironment);
       const auth = makeSigmaPiAuthCapability({
         settings: effectiveConfig,
-        environment: processEnv,
+        environment: instanceEnvironment,
         spawner,
       });
       const checkProvider = checkSigmaProviderStatus(effectiveConfig, processEnv).pipe(

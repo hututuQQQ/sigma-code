@@ -103,21 +103,19 @@ const backendChildEnvPatch = (): Record<string, string | undefined> =>
 const CHATGPT_AUTH_PROXY_PROBE_URL = "https://auth.openai.com";
 
 export function parseElectronProxyResolution(value: string): string | undefined {
-  for (const directive of value.split(";")) {
-    const [kind, address] = directive.trim().split(/\s+/, 2);
-    if (!kind || !address || !["PROXY", "HTTP", "HTTPS"].includes(kind.toUpperCase())) {
-      continue;
-    }
-    try {
-      const protocol = kind.toUpperCase() === "HTTPS" ? "https:" : "http:";
-      const parsed = new URL(`${protocol}//${address}`);
-      if (!parsed.hostname || !parsed.port || parsed.username || parsed.password) continue;
-      return parsed.toString().replace(/\/$/u, "");
-    } catch {
-      // Ignore unsupported or malformed proxy directives and try the next one.
-    }
+  const [firstDirective] = value.split(";");
+  const [kind, address] = firstDirective?.trim().split(/\s+/, 2) ?? [];
+  if (!kind || !address || !["PROXY", "HTTP", "HTTPS"].includes(kind.toUpperCase())) {
+    return undefined;
   }
-  return undefined;
+  try {
+    const protocol = kind.toUpperCase() === "HTTPS" ? "https:" : "http:";
+    const parsed = new URL(`${protocol}//${address}`);
+    if (!parsed.hostname || !parsed.port || parsed.username || parsed.password) return undefined;
+    return parsed.toString().replace(/\/$/u, "");
+  } catch {
+    return undefined;
+  }
 }
 
 const resolveDesktopSystemProxyUrl = Effect.promise(async () => {

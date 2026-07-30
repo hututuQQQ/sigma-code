@@ -2,6 +2,8 @@ import type {
   ModelCapabilities,
   ModelSelection,
   ServerConfig as T3ServerConfig,
+  ServerProvider,
+  ServerProviderModel,
 } from "@t3tools/contracts";
 import {
   buildProviderOptionSelectionsFromDescriptors,
@@ -26,6 +28,8 @@ export type ProviderGroup = {
   readonly models: ReadonlyArray<ModelOption>;
 };
 
+const ALLOW_UNPRICED_COSTS_OPTION_ID = "allowUnpricedCosts";
+
 function providerDisplayLabel(provider: {
   readonly displayName?: string | undefined;
   readonly driver: string;
@@ -35,6 +39,47 @@ function providerDisplayLabel(provider: {
   if (provider.driver === "codex") return "Codex";
   if (provider.driver === "claudeAgent") return "Claude";
   return provider.instanceId;
+}
+
+function selectionAllowsUnpricedCosts(selection: ModelSelection | null): boolean {
+  return (
+    selection?.options?.some(
+      (option) => option.id === ALLOW_UNPRICED_COSTS_OPTION_ID && option.value === true,
+    ) === true
+  );
+}
+
+function modelRequiresUnpricedConsent(model: ServerProviderModel): boolean {
+  return (
+    model.capabilities?.optionDescriptors?.some(
+      (descriptor) => descriptor.id === ALLOW_UNPRICED_COSTS_OPTION_ID,
+    ) === true
+  );
+}
+
+function isMobileModelAvailable(input: {
+  readonly provider: ServerProvider;
+  readonly model: ServerProviderModel;
+  readonly fallbackModelSelection: ModelSelection | null;
+}): boolean {
+  if (input.model.authConnectionId) {
+    const connection = input.provider.authConnections?.find(
+      (candidate) => candidate.id === input.model.authConnectionId,
+    );
+    if (connection?.status !== "authenticated") {
+      return false;
+    }
+  }
+
+  if (!modelRequiresUnpricedConsent(input.model)) {
+    return true;
+  }
+  const fallback = input.fallbackModelSelection;
+  return (
+    fallback?.instanceId === input.provider.instanceId &&
+    fallback.model === input.model.slug &&
+    selectionAllowsUnpricedCosts(fallback)
+  );
 }
 
 function normalizeSelectionOptions(
@@ -71,6 +116,15 @@ export function buildModelOptions(
 
     const providerLabel = providerDisplayLabel(provider);
     for (const model of provider.models) {
+      if (
+        !isMobileModelAvailable({
+          provider,
+          model,
+          fallbackModelSelection,
+        })
+      ) {
+        continue;
+      }
       const key = `${provider.instanceId}:${model.slug}`;
       options.set(key, {
         key,
@@ -100,23 +154,27 @@ export function buildModelOptions(
         ...existing,
         selection: normalizeSelectionOptions(fallbackModelSelection, existing.capabilities),
       });
-    } else {
-      const providerLabel = fallbackModelSelection.instanceId;
-      options.set(key, {
-        key,
-        label: fallbackModelSelection.model,
-        subtitle: providerLabel,
-        providerKey: fallbackModelSelection.instanceId,
-        providerLabel,
-        providerDriver: fallbackModelSelection.instanceId,
-        isDefault: false,
-        capabilities: null,
-        selection: fallbackModelSelection,
-      });
     }
   }
 
   return [...options.values()];
+}
+
+export function resolveMobileModelSelection(
+  options: ReadonlyArray<ModelOption>,
+  preferred: ModelSelection | null | undefined,
+): ModelSelection | null {
+  if (preferred) {
+    const preferredOption = options.find(
+      (option) =>
+        option.selection.instanceId === preferred.instanceId &&
+        option.selection.model === preferred.model,
+    );
+    if (preferredOption) {
+      return preferredOption.selection;
+    }
+  }
+  return options.find((option) => option.isDefault)?.selection ?? options[0]?.selection ?? null;
 }
 
 export function groupByProvider(options: ReadonlyArray<ModelOption>): ReadonlyArray<ProviderGroup> {

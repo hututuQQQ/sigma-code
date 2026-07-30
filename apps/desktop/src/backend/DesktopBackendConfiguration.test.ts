@@ -140,10 +140,16 @@ const withHarness = <A, E, R>(
 
 describe("DesktopBackendConfiguration", () => {
   it("parses Chromium proxy resolution without accepting SOCKS or credentials", () => {
-    assert.equal(
+    assert.isUndefined(
       DesktopBackendConfiguration.parseElectronProxyResolution(
         "SOCKS5 127.0.0.1:1080; PROXY 127.0.0.1:7890; DIRECT",
       ),
+    );
+    assert.isUndefined(
+      DesktopBackendConfiguration.parseElectronProxyResolution("DIRECT; PROXY 127.0.0.1:7890"),
+    );
+    assert.equal(
+      DesktopBackendConfiguration.parseElectronProxyResolution("PROXY 127.0.0.1:7890; DIRECT"),
       "http://127.0.0.1:7890",
     );
     assert.equal(

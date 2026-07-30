@@ -32,6 +32,7 @@ import * as Cause from "effect/Cause";
 import * as Order from "effect/Order";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { cn } from "../../lib/cn";
+import { buildModelOptions, resolveMobileModelSelection } from "../../lib/modelOptions";
 
 import { useProjects, useServerConfigs } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
@@ -497,6 +498,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
   const navigation = useNavigation();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const projects = useProjects();
+  const serverConfigByEnvironmentId = useServerConfigs();
 
   return useCallback(
     async (workspaceRoot: string) => {
@@ -520,11 +522,17 @@ function useCreateProject(environment: EnvironmentOption | null) {
       }
 
       const projectId = ProjectId.make(uuidv4());
+      const modelOptions = buildModelOptions(
+        serverConfigByEnvironmentId.get(environment.environmentId),
+        null,
+      );
+      const defaultModelSelection = resolveMobileModelSelection(modelOptions, null);
       const command = buildProjectCreateCommand({
         commandId: CommandId.make(uuidv4()),
         projectId,
         workspaceRoot,
         createdAt: new Date().toISOString(),
+        defaultModelSelection,
       });
       const result = await createProject({
         environmentId: environment.environmentId,
@@ -542,7 +550,7 @@ function useCreateProject(environment: EnvironmentOption | null) {
       );
       return result;
     },
-    [createProject, environment, projects, navigation],
+    [createProject, environment, navigation, projects, serverConfigByEnvironmentId],
   );
 }
 

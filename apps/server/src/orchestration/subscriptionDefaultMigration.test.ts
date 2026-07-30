@@ -3,14 +3,29 @@ import {
   DEFAULT_MODEL,
   DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   EventId,
+  type OrchestrationCommand,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
+  type ServerProvider,
   ThreadId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 
-import { planSubscriptionDefaultMigration } from "./subscriptionDefaultMigration.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
+import {
+  OrchestrationEngineService,
+  type OrchestrationEngineShape,
+} from "./Services/OrchestrationEngine.ts";
+import {
+  isSubscriptionDefaultMigrationTargetAvailable,
+  migrateSubscriptionDefaults,
+  planSubscriptionDefaultMigration,
+} from "./subscriptionDefaultMigration.ts";
 
 const occurredAt = "2026-07-29T00:00:00.000Z";
 
@@ -85,6 +100,30 @@ function blankWelcomeThread(sequence = 2): OrchestrationEvent {
   });
 }
 
+function sigmaProvider(status: ServerProvider["status"] = "ready"): ServerProvider {
+  return {
+    instanceId: ProviderInstanceId.make("sigma"),
+    driver: ProviderDriverKind.make("sigma"),
+    enabled: true,
+    installed: status !== "error",
+    version: "1.0.0",
+    status,
+    auth: { status: "unknown" },
+    checkedAt: occurredAt,
+    models: [
+      {
+        slug: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+        name: "GPT Terra",
+        isCustom: false,
+        capabilities: null,
+      },
+    ],
+    slashCommands: [],
+    skills: [],
+    authConnections: [],
+  };
+}
+
 describe("subscription default migration", () => {
   it("migrates only an untouched auto-shaped project and blank welcome thread", () => {
     expect(planSubscriptionDefaultMigration([legacyProject(), blankWelcomeThread()])).toEqual({
@@ -157,4 +196,55 @@ describe("subscription default migration", () => {
       threadIds: [ThreadId.make("thread-1")],
     });
   });
+
+  it("requires a ready Sigma instance that exposes the subscription model", () => {
+    expect(isSubscriptionDefaultMigrationTargetAvailable([sigmaProvider()])).toBe(true);
+    expect(isSubscriptionDefaultMigrationTargetAvailable([sigmaProvider("error")])).toBe(false);
+    expect(
+      isSubscriptionDefaultMigrationTargetAvailable([
+        {
+          ...sigmaProvider(),
+          models: [],
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it.effect("waits for the target and records completion before a second scan", () =>
+    Effect.gen(function* () {
+      const dispatched: OrchestrationCommand[] = [];
+      const engine: OrchestrationEngineShape = {
+        readEvents: () => Stream.fromIterable([legacyProject(), blankWelcomeThread()]),
+        dispatch: (command) =>
+          Effect.sync(() => {
+            dispatched.push(command);
+            return { sequence: dispatched.length };
+          }),
+        streamDomainEvents: Stream.empty,
+        latestSequence: Effect.succeed(2),
+      };
+      const testLayer = Layer.mergeAll(
+        SqlitePersistenceMemory,
+        Layer.succeed(OrchestrationEngineService, engine),
+      );
+
+      yield* Effect.gen(function* () {
+        const unavailable = yield* migrateSubscriptionDefaults([sigmaProvider("error")]);
+        expect(unavailable.status).toBe("target-unavailable");
+        expect(dispatched).toHaveLength(0);
+
+        const migrated = yield* migrateSubscriptionDefaults([sigmaProvider()]);
+        expect(migrated).toMatchObject({
+          status: "completed",
+          migratedProjects: 1,
+          migratedThreads: 1,
+        });
+        expect(dispatched).toHaveLength(2);
+
+        const repeated = yield* migrateSubscriptionDefaults([sigmaProvider()]);
+        expect(repeated.status).toBe("already-completed");
+        expect(dispatched).toHaveLength(2);
+      }).pipe(Effect.provide(testLayer));
+    }),
+  );
 });

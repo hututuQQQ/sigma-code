@@ -50,12 +50,19 @@ describe("resolveSigmaProcessEnvironment", () => {
     expect(resolved.NO_PROXY).toBe("localhost,127.0.0.1,::1");
   });
 
-  it("uses the desktop-resolved system proxy when no explicit proxy is configured", () => {
-    const resolved = resolveSigmaProcessEnvironment({
+  it("uses the desktop-resolved system proxy only for an explicitly scoped request", () => {
+    const environment = {
       SIGMACODE_SYSTEM_PROXY_URL: "http://127.0.0.1:7890",
+    };
+    const unscoped = resolveSigmaProcessEnvironment(environment);
+    const resolved = resolveSigmaProcessEnvironment(environment, {
+      useDesktopSystemProxy: true,
     });
 
+    expect(unscoped.HTTP_PROXY).toBeUndefined();
+    expect(unscoped.HTTPS_PROXY).toBeUndefined();
     expect(resolved.HTTP_PROXY).toBe("http://127.0.0.1:7890");
     expect(resolved.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
+    expect(resolved.SIGMACODE_SYSTEM_PROXY_URL).toBeUndefined();
   });
 });

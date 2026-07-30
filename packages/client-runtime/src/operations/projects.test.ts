@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   EnvironmentId,
   ProjectId,
   CommandId,
+  ProviderInstanceId,
   SourceControlDiscoveryResult,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
@@ -130,6 +130,10 @@ describe("add project shared logic", () => {
         projectId: ProjectId.make("project"),
         workspaceRoot: "/work/repo",
         createdAt: "2026-01-01T00:00:00.000Z",
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-test",
+        },
       }),
     ).toMatchObject({
       type: "project.create",
@@ -139,9 +143,21 @@ describe("add project shared logic", () => {
       workspaceRoot: "/work/repo",
       createWorkspaceRootIfMissing: true,
       defaultModelSelection: {
-        instanceId: "sigma",
-        model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+        instanceId: "codex",
+        model: "gpt-test",
       },
     });
+  });
+
+  it("keeps a project default empty when the target environment has no usable model", () => {
+    expect(
+      buildProjectCreateCommand({
+        commandId: CommandId.make("command"),
+        projectId: ProjectId.make("project"),
+        workspaceRoot: "/work/repo",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        defaultModelSelection: null,
+      }).defaultModelSelection,
+    ).toBeNull();
   });
 });

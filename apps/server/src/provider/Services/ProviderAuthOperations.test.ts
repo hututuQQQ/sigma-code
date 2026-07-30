@@ -9,6 +9,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import type { ProviderAuthCapability, ProviderInstance } from "../ProviderDriver.ts";
@@ -60,11 +61,12 @@ function fakeInstance(auth: ProviderAuthCapability): ProviderInstance {
   } as unknown as ProviderInstance;
 }
 
-function operationLayer(instance: ProviderInstance) {
+function operationLayer(input: ProviderInstance | ReadonlyArray<ProviderInstance>) {
+  const instances = Array.isArray(input) ? input : [input];
   const registry: ProviderInstanceRegistryShape = {
     getInstance: (instanceId) =>
-      Effect.succeed(instanceId === instance.instanceId ? instance : undefined),
-    listInstances: Effect.succeed([instance]),
+      Effect.succeed(instances.find((instance) => instance.instanceId === instanceId)),
+    listInstances: Effect.succeed(instances),
     listUnavailable: Effect.succeed([]),
     streamChanges: Stream.empty,
     subscribeChanges: Effect.die("not used"),
@@ -233,6 +235,79 @@ describe("ProviderAuthOperations", () => {
         );
       });
       return yield* program.pipe(Effect.provide(operationLayer(fakeInstance(auth))));
+    }),
+  );
+
+  it.effect("refreshes every instance that shares the completed host auth scope", () =>
+    Effect.gen(function* () {
+      const firstRefreshCount = yield* Ref.make(0);
+      const secondRefreshCount = yield* Ref.make(0);
+      const sharedScopeRefreshed = yield* Deferred.make<void>();
+      const refresh = (
+        count: Ref.Ref<number>,
+        snapshot: ProviderInstance["snapshot"]["getSnapshot"],
+      ) =>
+        Ref.update(count, (value) => value + 1).pipe(
+          Effect.andThen(Effect.all([Ref.get(firstRefreshCount), Ref.get(secondRefreshCount)])),
+          Effect.tap(([first, second]) =>
+            first > 0 && second > 0
+              ? Deferred.succeed(sharedScopeRefreshed, undefined)
+              : Effect.void,
+          ),
+          Effect.andThen(snapshot),
+        );
+      const auth: ProviderAuthCapability = {
+        scopeKey: () => "host:openai-codex",
+        login: (input) => input.emit({ type: "completed", status: "authenticated" }),
+        logout: () => Effect.void,
+      };
+      const first = fakeInstance(auth);
+      const second = {
+        ...fakeInstance(auth),
+        instanceId: ProviderInstanceId.make("sigma-work"),
+      };
+      const instances: ReadonlyArray<ProviderInstance> = [
+        {
+          ...first,
+          snapshot: {
+            ...first.snapshot,
+            refresh: refresh(firstRefreshCount, first.snapshot.getSnapshot),
+          },
+        },
+        {
+          ...second,
+          snapshot: {
+            ...second.snapshot,
+            refresh: refresh(secondRefreshCount, second.snapshot.getSnapshot),
+          },
+        },
+      ];
+
+      const program = Effect.gen(function* () {
+        const operations = yield* ProviderAuthOperations;
+        yield* operations.start({
+          instanceId: ProviderInstanceId.make("sigma"),
+          connectionId: "openai-codex",
+          loginMethod: "browser",
+        });
+        yield* Deferred.await(sharedScopeRefreshed).pipe(Effect.timeout("1 second"));
+        assert.deepStrictEqual(
+          [yield* Ref.get(firstRefreshCount), yield* Ref.get(secondRefreshCount)],
+          [1, 1],
+        );
+        yield* Effect.yieldNow;
+
+        yield* operations.logout({
+          instanceId: ProviderInstanceId.make("sigma"),
+          connectionId: "openai-codex",
+        });
+        assert.deepStrictEqual(
+          [yield* Ref.get(firstRefreshCount), yield* Ref.get(secondRefreshCount)],
+          [2, 2],
+        );
+      });
+
+      yield* program.pipe(Effect.provide(operationLayer(instances)));
     }),
   );
 });
