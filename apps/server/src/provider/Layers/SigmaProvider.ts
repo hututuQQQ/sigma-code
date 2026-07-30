@@ -52,7 +52,7 @@ const FALLBACK_SIGMA_MODELS: ReadonlyArray<ServerProviderModel> = [
     capabilities: EMPTY_CAPABILITIES,
   },
 ];
-const VERSION_PROBE_TIMEOUT_MS = 4_000;
+const VERSION_PROBE_TIMEOUT_MS = 15_000;
 const ACP_PROBE_TIMEOUT_MS = 20_000;
 
 function modelsFromSettings(

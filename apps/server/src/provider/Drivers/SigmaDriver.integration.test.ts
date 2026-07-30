@@ -74,6 +74,7 @@ const mockModelsList = JSON.stringify({
 async function makeMockSigmaBinary(
   requestLogPath: string,
   platform: NodeJS.Platform,
+  versionDelayMs = 0,
 ): Promise<{
   readonly directory: string;
   readonly binaryPath: string;
@@ -84,6 +85,9 @@ async function makeMockSigmaBinary(
     const script = [
       "@echo off",
       'if "%~1"=="--version" (',
+      ...(versionDelayMs > 0
+        ? [`  "${process.execPath}" -e "setTimeout(() => {}, ${versionDelayMs})"`]
+        : []),
       "  echo Sigma Code 0.1.0-test",
       "  exit /b 0",
       ")",
@@ -115,6 +119,9 @@ async function makeMockSigmaBinary(
   const script = [
     "#!/bin/sh",
     'if [ "$1" = "--version" ]; then',
+    ...(versionDelayMs > 0
+      ? [`  ${JSON.stringify(process.execPath)} -e 'setTimeout(() => {}, ${versionDelayMs})'`]
+      : []),
     '  echo "Sigma Code 0.1.0-test"',
     "  exit 0",
     "fi",
@@ -374,14 +381,16 @@ describe("SigmaDriver integration", () => {
         }),
     );
 
-    it.effect("uses the bundled Runtime when the provider has its default binary setting", () =>
+    it.effect("allows a cold-start delay while probing the bundled Runtime version", () =>
       Effect.gen(function* () {
         const requestLogDir = yield* Effect.promise(() =>
           NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "sigma-driver-bundled-request-log-")),
         );
         const requestLogPath = NodePath.join(requestLogDir, "requests.ndjson");
         const platform = yield* HostProcessPlatform;
-        const mock = yield* Effect.promise(() => makeMockSigmaBinary(requestLogPath, platform));
+        const mock = yield* Effect.promise(() =>
+          makeMockSigmaBinary(requestLogPath, platform, 4_250),
+        );
         yield* Effect.addFinalizer(() =>
           Effect.promise(() =>
             Promise.all([
