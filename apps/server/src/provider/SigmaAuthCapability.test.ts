@@ -79,8 +79,9 @@ describe("SigmaAuthCapability", () => {
       );
       yield* Effect.scoped(capability.logout("openai-codex"));
 
-      expect(spawned).toHaveLength(3);
+      expect(spawned).toHaveLength(4);
       expect(spawned.map((command) => command.command)).toEqual([
+        trustedBinary,
         trustedBinary,
         trustedBinary,
         trustedBinary,
@@ -88,6 +89,7 @@ describe("SigmaAuthCapability", () => {
       expect(spawned.map((command) => command.args)).toEqual([
         ["auth", "status", "openai-codex", "--json"],
         ["auth", "login", "openai-codex", "--method", "browser", "--json"],
+        ["auth", "status", "openai-codex", "--json"],
         ["auth", "logout", "openai-codex", "--json"],
       ]);
       expect(events.map((event) => event.type)).toEqual([
@@ -105,6 +107,88 @@ describe("SigmaAuthCapability", () => {
           Object.values(event).includes("stderr-secret-that-must-not-surface"),
         ),
       ).toBe(false);
+    }),
+  );
+
+  it.effect("does not report completion until the credential is readable", () =>
+    Effect.gen(function* () {
+      const spawner = ChildProcessSpawner.make((rawCommand) =>
+        Effect.sync(() => {
+          const command = rawCommand as unknown as SpawnCommand;
+          if (command.args[1] === "login") {
+            return makeHandle('{"type":"completed","status":"authenticated"}');
+          }
+          return makeHandle('{"provider":"openai-codex","status":"unauthenticated"}');
+        }),
+      );
+      const events: ProviderAuthCapabilityEvent[] = [];
+      const capability = makeSigmaAuthCapability({
+        settings: { binaryPath: "sigma-trusted-test" },
+        environment: { ...process.env },
+        spawner,
+      });
+
+      yield* Effect.scoped(
+        capability.login({
+          connectionId: "openai-codex",
+          loginMethod: "browser",
+          responses: Stream.empty,
+          emit: (event) =>
+            Effect.sync(() => {
+              events.push(event);
+            }),
+        }),
+      );
+
+      expect(events).toEqual([
+        {
+          type: "error",
+          code: "credential_not_persisted",
+          message:
+            "ChatGPT returned to Sigma, but the credentials were not saved. Check the Runtime proxy or network settings and start a new login.",
+          retryable: true,
+        },
+      ]);
+    }),
+  );
+
+  it.effect("explains token-exchange auth failures without asking for a blind retry", () =>
+    Effect.gen(function* () {
+      const spawner = ChildProcessSpawner.make(() =>
+        Effect.succeed(
+          makeHandle(
+            '{"type":"error","code":"auth_required","message":"Sign in again.","retryable":false}',
+          ),
+        ),
+      );
+      const events: ProviderAuthCapabilityEvent[] = [];
+      const capability = makeSigmaAuthCapability({
+        settings: { binaryPath: "sigma-trusted-test" },
+        environment: { ...process.env },
+        spawner,
+      });
+
+      yield* Effect.scoped(
+        capability.login({
+          connectionId: "openai-codex",
+          loginMethod: "browser",
+          responses: Stream.empty,
+          emit: (event) =>
+            Effect.sync(() => {
+              events.push(event);
+            }),
+        }),
+      );
+
+      expect(events).toEqual([
+        {
+          type: "error",
+          code: "auth_required",
+          message:
+            "ChatGPT returned to Sigma, but the login could not be finalized. Check the Runtime proxy or network settings and start a new login.",
+          retryable: false,
+        },
+      ]);
     }),
   );
 

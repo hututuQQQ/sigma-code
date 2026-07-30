@@ -26,6 +26,7 @@ import {
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
 import { makeSigmaAuthCapability } from "../SigmaAuthCapability.ts";
+import { resolveSigmaProcessEnvironment } from "../SigmaProxyEnvironment.ts";
 import {
   makeManualOnlyProviderMaintenanceCapabilities,
   makeStaticProviderMaintenanceResolver,
@@ -87,7 +88,9 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
-      const processEnv = mergeProviderInstanceEnvironment(environment);
+      const processEnv = resolveSigmaProcessEnvironment(
+        mergeProviderInstanceEnvironment(environment),
+      );
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
         instanceId,

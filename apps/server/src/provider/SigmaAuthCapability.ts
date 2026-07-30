@@ -150,13 +150,18 @@ function normalizeCliEvent(
         ...(email ? { email } : {}),
       };
     }
-    case "error":
+    case "error": {
+      const code = safeText(event.code) ?? "protocol";
       return {
         type: "error",
-        code: safeText(event.code) ?? "protocol",
-        message: safeText(event.message) ?? "Authentication failed.",
+        code,
+        message:
+          code === "auth_required"
+            ? "ChatGPT returned to Sigma, but the login could not be finalized. Check the Runtime proxy or network settings and start a new login."
+            : (safeText(event.message) ?? "Authentication failed."),
         retryable: event.retryable,
       };
+    }
   }
 }
 
@@ -282,6 +287,9 @@ export function makeSigmaAuthCapability(input: {
         Effect.forkScoped,
       );
 
+      let completedEvent:
+        | Extract<ProviderAuthCapabilityEvent, { readonly type: "completed" }>
+        | undefined;
       const consumeStdout = child.stdout.pipe(
         Stream.decodeText(),
         Stream.splitLines,
@@ -290,7 +298,11 @@ export function makeSigmaAuthCapability(input: {
         Stream.runForEach((line) => {
           const event = parseCliLine(line);
           return event
-            ? operation.emit(event)
+            ? event.type === "completed"
+              ? Effect.sync(() => {
+                  completedEvent = event;
+                })
+              : operation.emit(event)
             : operation
                 .emit({
                   type: "error",
@@ -321,6 +333,27 @@ export function makeSigmaAuthCapability(input: {
       if (exitCode !== 0) {
         return;
       }
+      if (!completedEvent) {
+        return;
+      }
+      const verifiedConnection = yield* readSigmaCodexAuthConnection(
+        input.settings,
+        input.environment,
+      ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, input.spawner));
+      if (verifiedConnection.status !== "authenticated") {
+        yield* operation.emit({
+          type: "error",
+          code: "credential_not_persisted",
+          message:
+            "ChatGPT returned to Sigma, but the credentials were not saved. Check the Runtime proxy or network settings and start a new login.",
+          retryable: true,
+        });
+        return;
+      }
+      yield* operation.emit({
+        ...completedEvent,
+        ...(verifiedConnection.email ? { email: verifiedConnection.email } : {}),
+      });
     }).pipe(
       Effect.mapError(
         () =>
