@@ -6,6 +6,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -44,6 +45,8 @@ import {
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { DISTRIBUTION_LEGAL_RESOURCES } from "./lib/distribution-legal-resources.ts";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+
+const encodeUnknownJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 
 function mockProcess(exitCode: number) {
   return ChildProcessSpawner.makeHandle({
@@ -485,10 +488,19 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it.effect("adds passkey entitlements and both renderer protocols to signed macOS builds", () =>
     Effect.gen(function* () {
-      const config = yield* createBuildConfig("mac", "dmg", "1.2.3", true, false, undefined, {
-        entitlementsPath: "/tmp/entitlements.mac.plist",
-        provisioningProfilePath: "/tmp/sigma-code.provisionprofile",
-      });
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        true,
+        false,
+        undefined,
+        ["node_modules/tr46/lib/.gitkeep"],
+        {
+          entitlementsPath: "/tmp/entitlements.mac.plist",
+          provisioningProfilePath: "/tmp/sigma-code.provisionprofile",
+        },
+      );
 
       const mac = config.mac as Record<string, unknown>;
       assert.equal(config.appId, "io.github.hututuqqq.sigmacode");
@@ -501,6 +513,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(config.extraResources, [
         { from: "legal", to: "legal" },
         { from: ".", to: ".", filter: ["sigma-runtime/**/*"] },
+        {
+          from: "sigma-runtime/node_modules/tr46/lib/.gitkeep",
+          to: "sigma-runtime/node_modules/tr46/lib/.gitkeep",
+        },
       ]);
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
@@ -527,12 +543,25 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         yield* fileSystem.makeDirectory(path.dirname(filePath), { recursive: true });
         yield* fileSystem.writeFileString(filePath, relativePath);
       }
+      const gitkeepPath = path.join(runtimePath, "node_modules/tr46/lib/.gitkeep");
+      yield* fileSystem.makeDirectory(path.dirname(gitkeepPath), { recursive: true });
+      yield* fileSystem.writeFileString(gitkeepPath, "");
+      const integrityManifest = yield* encodeUnknownJsonString({
+        entries: [...requiredFiles, "node_modules/tr46/lib/.gitkeep"].map((entryPath) => ({
+          path: entryPath,
+        })),
+      });
+      yield* fileSystem.writeFileString(
+        path.join(runtimePath, "integrity-manifest.json"),
+        integrityManifest,
+      );
 
-      yield* stageBundledSigmaRuntime({
+      const exactCopyPaths = yield* stageBundledSigmaRuntime({
         stageAppDir,
         platform: "win",
         runtimePath,
       });
+      assert.deepStrictEqual(exactCopyPaths, ["node_modules/tr46/lib/.gitkeep"]);
 
       for (const relativePath of requiredFiles) {
         assert.isTrue(
@@ -551,6 +580,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         false,
         false,
         undefined,
+        [],
         undefined,
       );
 

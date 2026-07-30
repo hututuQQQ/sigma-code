@@ -85,6 +85,7 @@ import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSna
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
+import * as ProviderAuthOperations from "./provider/Services/ProviderAuthOperations.ts";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "./provider/providerMaintenance.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -745,6 +746,15 @@ const buildAppUnderTest = (options?: {
     );
 
     const appLayer = servedRoutesLayer.pipe(
+      Layer.provide(
+        Layer.mock(ProviderAuthOperations.ProviderAuthOperations)({
+          start: () => Effect.die("Provider auth operation not stubbed in this test"),
+          respond: () => Effect.die("Provider auth operation not stubbed in this test"),
+          cancel: () => Effect.die("Provider auth operation not stubbed in this test"),
+          logout: () => Effect.die("Provider auth operation not stubbed in this test"),
+          subscribe: () => Stream.empty,
+        }),
+      ),
       Layer.provide(
         Layer.mock(BrowserTraceCollector.BrowserTraceCollector)({
           record: () => Effect.void,

@@ -34,6 +34,13 @@ import type {
 import type { ProviderInstanceId } from "./providerInstance.ts";
 import type {
   ServerConfig,
+  ProviderAuthCancelInput,
+  ProviderAuthLogoutInput,
+  ProviderAuthOperationEvent,
+  ProviderAuthRespondInput,
+  ProviderAuthStartInput,
+  ProviderAuthStartResult,
+  ProviderAuthSubscribeInput,
   ServerProcessDiagnosticsResult,
   ServerProcessResourceHistoryInput,
   ServerProcessResourceHistoryResult,
@@ -1175,6 +1182,17 @@ export interface LocalApi {
  * `environmentId` rather than reaching through the local desktop bridge.
  */
 export interface EnvironmentApi {
+  providers: {
+    startAuth: (input: ProviderAuthStartInput) => Promise<ProviderAuthStartResult>;
+    respondAuth: (input: ProviderAuthRespondInput) => Promise<void>;
+    cancelAuth: (input: ProviderAuthCancelInput) => Promise<void>;
+    logoutAuth: (input: ProviderAuthLogoutInput) => Promise<ServerProviderUpdatedPayload>;
+    subscribeAuth: (
+      input: ProviderAuthSubscribeInput,
+      callback: (event: ProviderAuthOperationEvent) => void,
+      options?: { onResubscribe?: () => void },
+    ) => () => void;
+  };
   terminal: {
     open: (input: typeof TerminalOpenInput.Encoded) => Promise<TerminalSessionSnapshot>;
     attach: (

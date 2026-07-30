@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
@@ -64,8 +65,42 @@ describe("SigmaAcpSupport", () => {
       command: "sigma",
       args: ["acp"],
       cwd: "/tmp/repo",
-      env: { PATH: "/opt/bin" },
+      env: {
+        PATH: "/opt/bin",
+        NODE_USE_ENV_PROXY: "1",
+        NO_PROXY: "localhost,127.0.0.1,::1",
+      },
     });
+    expect(
+      buildSigmaAcpSpawnInput(undefined, "/tmp/repo", undefined, {
+        instanceId: ProviderInstanceId.make("sigma"),
+        model: "example/unknown-price",
+        options: [{ id: "allowUnpricedCosts", value: true }],
+      }),
+    ).toEqual({
+      command: "sigma",
+      args: ["acp", "--allow-unpriced-costs"],
+      cwd: "/tmp/repo",
+    });
+  });
+
+  it("scopes the desktop-resolved proxy to OpenAI Codex model sessions", () => {
+    const environment = {
+      SIGMACODE_SYSTEM_PROXY_URL: "http://127.0.0.1:7890",
+    };
+    const otherProvider = buildSigmaAcpSpawnInput(undefined, "/tmp/repo", environment, {
+      instanceId: ProviderInstanceId.make("sigma"),
+      model: "anthropic/claude-test",
+    });
+    const openAiCodex = buildSigmaAcpSpawnInput(undefined, "/tmp/repo", environment, {
+      instanceId: ProviderInstanceId.make("sigma"),
+      model: "openai-codex/gpt-test",
+    });
+
+    expect(otherProvider.env?.HTTP_PROXY).toBeUndefined();
+    expect(otherProvider.env?.HTTPS_PROXY).toBeUndefined();
+    expect(openAiCodex.env?.HTTP_PROXY).toBe("http://127.0.0.1:7890");
+    expect(openAiCodex.env?.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
   });
 
   it("prefers an explicit path, then the bundled runtime, then PATH discovery", () => {
@@ -86,7 +121,7 @@ describe("SigmaAcpSupport", () => {
   });
 
   it("normalizes defaults and discovers flat or grouped ACP model options", () => {
-    expect(resolveSigmaAcpModelId(undefined)).toBe("deepseek/deepseek-v4-pro");
+    expect(resolveSigmaAcpModelId(undefined)).toBe("openai-codex/gpt-5.6-terra");
     expect(currentSigmaModelIdFromSessionSetup(sessionSetup)).toBe("glm/glm-5.2");
     expect(sigmaModelsFromSessionSetup(sessionSetup)).toEqual([
       { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro" },

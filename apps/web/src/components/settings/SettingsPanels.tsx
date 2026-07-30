@@ -1551,6 +1551,13 @@ export function ProviderSettingsPanel() {
           return (
             <ProviderInstanceCard
               key={row.instanceId}
+              environmentId={primaryEnvironment?.environmentId}
+              canStartProviderAuth={
+                typeof window !== "undefined" &&
+                Boolean(window.desktopBridge) &&
+                primaryEnvironment?.entry.target._tag === "PrimaryConnectionTarget" &&
+                primaryEnvironment.serverConfig?.environment.platform.os === "windows"
+              }
               instanceId={row.instanceId}
               instance={row.instance}
               driverOption={driverOption}

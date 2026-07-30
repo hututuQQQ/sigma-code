@@ -28,6 +28,12 @@ import {
   resolveSigmaBinaryPath,
   sigmaModelsFromSessionSetup,
 } from "../acp/SigmaAcpSupport.ts";
+import {
+  makePendingSigmaAuthConnections,
+  readSigmaAuthConnections,
+  readSigmaModelCatalog,
+  SIGMA_CODEX_AUTH_CONNECTION_ID,
+} from "../SigmaPiCapability.ts";
 
 const SIGMA_PRESENTATION = {
   displayName: "Sigma",
@@ -37,14 +43,28 @@ const SIGMA_PRESENTATION = {
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
-const VERSION_PROBE_TIMEOUT_MS = 4_000;
+const FALLBACK_SIGMA_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "openai-codex/gpt-5.6-terra",
+    name: "GPT-5.6 Terra",
+    isCustom: false,
+    isDefault: true,
+    capabilities: EMPTY_CAPABILITIES,
+  },
+];
+const VERSION_PROBE_TIMEOUT_MS = 15_000;
 const ACP_PROBE_TIMEOUT_MS = 20_000;
 
 function modelsFromSettings(
   customModels: ReadonlyArray<string> | undefined,
-  discovered: ReadonlyArray<ServerProviderModel> = [],
+  discovered: ReadonlyArray<ServerProviderModel> = FALLBACK_SIGMA_MODELS,
 ): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings(discovered, customModels ?? [], EMPTY_CAPABILITIES);
+  return providerModelsFromSettings(discovered, customModels ?? [], EMPTY_CAPABILITIES).map(
+    (model) =>
+      model.slug.startsWith(`${SIGMA_CODEX_AUTH_CONNECTION_ID}/`)
+        ? { ...model, authConnectionId: SIGMA_CODEX_AUTH_CONNECTION_ID }
+        : model,
+  );
 }
 
 export const buildInitialSigmaProviderSnapshot = Effect.fn("buildInitialSigmaProviderSnapshot")(
@@ -56,6 +76,7 @@ export const buildInitialSigmaProviderSnapshot = Effect.fn("buildInitialSigmaPro
       enabled: settings.enabled,
       checkedAt,
       models,
+      authConnections: makePendingSigmaAuthConnections(),
       probe: settings.enabled
         ? {
             installed: true,
@@ -153,6 +174,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: makePendingSigmaAuthConnections(),
       probe: {
         installed: !isCommandMissingCause(error),
         version: null,
@@ -170,6 +192,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: makePendingSigmaAuthConnections(),
       probe: {
         installed: true,
         version: null,
@@ -188,6 +211,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections: makePendingSigmaAuthConnections(),
       probe: {
         installed: true,
         version,
@@ -198,6 +222,10 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
     });
   }
 
+  const [authConnections, cliModels] = yield* Effect.all(
+    [readSigmaAuthConnections(settings, environment), readSigmaModelCatalog(settings, environment)],
+    { concurrency: "unbounded" },
+  );
   const acpExit = yield* probeSigmaAcp(settings, environment).pipe(
     Effect.timeoutOption(ACP_PROBE_TIMEOUT_MS),
     Effect.exit,
@@ -211,6 +239,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections,
       probe: {
         installed: true,
         version,
@@ -226,6 +255,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
+      authConnections,
       probe: {
         installed: true,
         version,
@@ -236,12 +266,13 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
     });
   }
 
-  const discovered = acpExit.value.value;
+  const discovered = cliModels.length > 0 ? cliModels : acpExit.value.value;
   return buildServerProvider({
     presentation: SIGMA_PRESENTATION,
     enabled: true,
     checkedAt,
     models: modelsFromSettings(settings.customModels, discovered),
+    authConnections,
     probe: {
       installed: true,
       version,

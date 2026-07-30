@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as url from "node:url";
-import * as zlib from "node:zlib";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
+import * as NodeZlib from "node:zlib";
 
-const repoRoot = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..");
-const sourcePath = path.join(repoRoot, "assets", "sigma-code-mark.png");
+const repoRoot = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
+const sourcePath = NodePath.join(repoRoot, "assets", "sigma-code-mark.png");
 const checkOnly = process.argv.includes("--check");
+const MARK_CANVAS_OCCUPANCY = 0.82;
+const BACKGROUND_TRANSPARENT_DISTANCE = 10;
+const BACKGROUND_OPAQUE_DISTANCE = 42;
 
 const crcTable = new Uint32Array(256);
 for (let index = 0; index < 256; index += 1) {
@@ -49,7 +52,7 @@ function encodePng(width, height, rgba) {
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     pngChunk("IHDR", header),
-    pngChunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
+    pngChunk("IDAT", NodeZlib.deflateSync(raw, { level: 9 })),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
 }
@@ -106,7 +109,7 @@ function decodePng(buffer) {
 
   const channels = colorType === 6 ? 4 : 3;
   const stride = width * channels;
-  const filtered = zlib.inflateSync(Buffer.concat(compressed));
+  const filtered = NodeZlib.inflateSync(Buffer.concat(compressed));
   const pixels = Buffer.alloc(stride * height);
   let inputOffset = 0;
   for (let row = 0; row < height; row += 1) {
@@ -190,12 +193,118 @@ function transparentBrandMark(source, monochrome = false) {
       Math.abs(output[offset + 1] - background[1]),
       Math.abs(output[offset + 2] - background[2]),
     );
-    output[offset + 3] = Math.max(0, Math.min(255, (distance - 2) * 12));
+    const alpha = Math.max(
+      0,
+      Math.min(
+        255,
+        Math.round(
+          ((distance - BACKGROUND_TRANSPARENT_DISTANCE) /
+            (BACKGROUND_OPAQUE_DISTANCE - BACKGROUND_TRANSPARENT_DISTANCE)) *
+            255,
+        ),
+      ),
+    );
+    output[offset + 3] = alpha;
     if (monochrome) {
-      output[offset] = 255;
-      output[offset + 1] = 255;
-      output[offset + 2] = 255;
+      const value = alpha === 0 ? 0 : 255;
+      output[offset] = value;
+      output[offset + 1] = value;
+      output[offset + 2] = value;
+    } else if (alpha === 0) {
+      // Transparent pixels must not retain the source canvas color: some icon
+      // previews ignore alpha, and filtered downscales can otherwise grow a
+      // pale fringe around the mark.
+      output[offset] = 0;
+      output[offset + 1] = 0;
+      output[offset + 2] = 0;
+    } else if (alpha < 255) {
+      // Recover the foreground color from the source's opaque background so
+      // antialiased edges composite cleanly on both light and dark surfaces.
+      const normalizedAlpha = alpha / 255;
+      for (let channel = 0; channel < 3; channel += 1) {
+        output[offset + channel] = Math.max(
+          0,
+          Math.min(
+            255,
+            Math.round(
+              (output[offset + channel] - background[channel] * (1 - normalizedAlpha)) /
+                normalizedAlpha,
+            ),
+          ),
+        );
+      }
     }
+  }
+  return { ...source, rgba: output };
+}
+
+function alphaBounds(source) {
+  let left = source.width;
+  let top = source.height;
+  let right = -1;
+  let bottom = -1;
+  for (let y = 0; y < source.height; y += 1) {
+    for (let x = 0; x < source.width; x += 1) {
+      if (source.rgba[(y * source.width + x) * 4 + 3] === 0) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+  if (right < left || bottom < top) {
+    throw new Error("Sigma brand source does not contain a visible mark.");
+  }
+  return {
+    x: left,
+    y: top,
+    width: right - left + 1,
+    height: bottom - top + 1,
+  };
+}
+
+function cropRgba(source, bounds) {
+  const output = Buffer.alloc(bounds.width * bounds.height * 4);
+  const sourceStride = source.width * 4;
+  const outputStride = bounds.width * 4;
+  for (let row = 0; row < bounds.height; row += 1) {
+    source.rgba.copy(
+      output,
+      row * outputStride,
+      (bounds.y + row) * sourceStride + bounds.x * 4,
+      (bounds.y + row) * sourceStride + (bounds.x + bounds.width) * 4,
+    );
+  }
+  return { width: bounds.width, height: bounds.height, rgba: output };
+}
+
+function fitTransparentMark(source, targetWidth, targetHeight) {
+  const cropped = cropRgba(source, alphaBounds(source));
+  const scale = Math.min(
+    (targetWidth * MARK_CANVAS_OCCUPANCY) / cropped.width,
+    (targetHeight * MARK_CANVAS_OCCUPANCY) / cropped.height,
+  );
+  const width = Math.max(1, Math.round(cropped.width * scale));
+  const height = Math.max(1, Math.round(cropped.height * scale));
+  const resized = resizeRgba(cropped, width, height);
+  const output = Buffer.alloc(targetWidth * targetHeight * 4);
+  const x = Math.floor((targetWidth - width) / 2);
+  const y = Math.floor((targetHeight - height) / 2);
+  for (let row = 0; row < height; row += 1) {
+    resized.copy(output, ((y + row) * targetWidth + x) * 4, row * width * 4, (row + 1) * width * 4);
+  }
+  return { width: targetWidth, height: targetHeight, rgba: output };
+}
+
+function flattenRgba(source, background) {
+  const output = Buffer.alloc(source.rgba.length);
+  for (let index = 0; index < source.width * source.height; index += 1) {
+    const offset = index * 4;
+    const alpha = source.rgba[offset + 3] / 255;
+    output[offset] = Math.round(source.rgba[offset] * alpha + background[0] * (1 - alpha));
+    output[offset + 1] = Math.round(source.rgba[offset + 1] * alpha + background[1] * (1 - alpha));
+    output[offset + 2] = Math.round(source.rgba[offset + 2] * alpha + background[2] * (1 - alpha));
+    output[offset + 3] = 255;
   }
   return { ...source, rgba: output };
 }
@@ -232,12 +341,35 @@ function encodeIcns(images) {
   return Buffer.concat([header, ...entries]);
 }
 
-const sourceBytes = fs.readFileSync(sourcePath);
+const sourceBytes = NodeFS.readFileSync(sourcePath);
 const source = decodePng(sourceBytes);
+const transparent = transparentBrandMark(source);
+const fittedTransparent = fitTransparentMark(transparent, source.width, source.height);
+const transparentBytes = encodePng(
+  fittedTransparent.width,
+  fittedTransparent.height,
+  fittedTransparent.rgba,
+);
+const sourceBackground = [source.rgba[0], source.rgba[1], source.rgba[2]];
+const opaquePngCache = new Map();
+const opaquePng = (size) => {
+  if (!opaquePngCache.has(size)) {
+    const flattened = flattenRgba(
+      {
+        width: size,
+        height: size,
+        rgba: resizeRgba(fittedTransparent, size, size),
+      },
+      sourceBackground,
+    );
+    opaquePngCache.set(size, encodePng(size, size, flattened.rgba));
+  }
+  return opaquePngCache.get(size);
+};
 const pngCache = new Map();
 const png = (size) => {
   if (!pngCache.has(size)) {
-    pngCache.set(size, encodePng(size, size, resizeRgba(source, size, size)));
+    pngCache.set(size, encodePng(size, size, resizeRgba(fittedTransparent, size, size)));
   }
   return pngCache.get(size);
 };
@@ -256,7 +388,12 @@ for (const relativePath of [
   "assets/nightly/nightly-macos-1024.png",
   "assets/nightly/nightly-universal-1024.png",
 ]) {
-  add(relativePath, png(1024));
+  // App Store icons cannot contain an alpha channel. Keep the legacy iOS and
+  // universal exports opaque while every logo-layer/desktop/web asset uses the
+  // transparent mark.
+  const requiresOpaqueCanvas =
+    relativePath.includes("-ios-") || relativePath.includes("-universal-");
+  add(relativePath, requiresOpaqueCanvas ? opaquePng(1024) : png(1024));
 }
 
 for (const directory of ["assets/prod", "assets/dev", "assets/nightly"]) {
@@ -281,7 +418,7 @@ for (const directory of ["assets/prod", "assets/dev", "assets/nightly"]) {
     `${directory}/${windowsName}`,
     encodeIco([16, 24, 32, 48, 64, 128, 256].map((size) => ({ size, png: png(size) }))),
   );
-  add(`${directory}/app-icon.icon/Assets/sigma-code-mark.png`, sourceBytes);
+  add(`${directory}/app-icon.icon/Assets/sigma-code-mark.png`, transparentBytes);
 }
 
 add("apps/desktop/resources/icon.png", png(1024));
@@ -306,34 +443,34 @@ add(
 add("apps/web/public/apple-touch-icon.png", png(180));
 add("apps/web/public/favicon-16x16.png", png(16));
 add("apps/web/public/favicon-32x32.png", png(32));
-add("apps/web/public/sigma-code-mark.png", sourceBytes);
+add("apps/web/public/sigma-code-mark.png", transparentBytes);
 add(
   "apps/web/public/favicon.ico",
   encodeIco([16, 32, 48, 64, 128, 256].map((size) => ({ size, png: png(size) }))),
 );
 
-const transparent = transparentBrandMark(source);
 const notification = transparentBrandMark(source, true);
+const fittedNotification = fitTransparentMark(notification, source.width, source.height);
 add(
   "apps/mobile/assets/android-icon-mark.png",
-  encodePng(1024, 1024, resizeRgba(transparent, 1024, 1024)),
+  encodePng(1024, 1024, resizeRgba(fittedTransparent, 1024, 1024)),
 );
 add(
   "apps/mobile/assets/android-notification-icon.png",
-  encodePng(96, 96, resizeRgba(notification, 96, 96)),
+  encodePng(96, 96, resizeRgba(fittedNotification, 96, 96)),
 );
 add("apps/mobile/assets/widget/SigmaMark.png", png(256));
 
 const stale = [];
 for (const [relativePath, contents] of generated) {
-  const absolutePath = path.join(repoRoot, relativePath);
+  const absolutePath = NodePath.join(repoRoot, relativePath);
   if (checkOnly) {
-    if (!fs.existsSync(absolutePath) || !fs.readFileSync(absolutePath).equals(contents)) {
+    if (!NodeFS.existsSync(absolutePath) || !NodeFS.readFileSync(absolutePath).equals(contents)) {
       stale.push(relativePath);
     }
   } else {
-    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-    fs.writeFileSync(absolutePath, contents);
+    NodeFS.mkdirSync(NodePath.dirname(absolutePath), { recursive: true });
+    NodeFS.writeFileSync(absolutePath, contents);
   }
 }
 

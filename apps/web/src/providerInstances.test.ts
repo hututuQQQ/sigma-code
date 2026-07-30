@@ -1,4 +1,9 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   applyProviderInstanceSettings,
@@ -30,6 +35,7 @@ function provider(input: {
     status: input.status ?? "ready",
     ...(input.availability ? { availability: input.availability } : {}),
     auth: { status: "authenticated" },
+    authConnections: [],
     checkedAt: "2026-01-01T00:00:00.000Z",
     models: input.models ?? [],
     slashCommands: [],
@@ -335,6 +341,26 @@ describe("getDefaultProviderInstanceModel", () => {
 });
 
 describe("resolveDefaultProviderModelSelection", () => {
+  it("prefers the Sigma subscription model for a new selection even when ACP reports another default", () => {
+    const providers = [
+      provider({
+        provider: ProviderDriverKind.make("sigma"),
+        instanceId: "sigma",
+        models: [model("deepseek-v4-pro", false, true), model(DEFAULT_SIGMA_SUBSCRIPTION_MODEL)],
+      }),
+      provider({
+        provider: ProviderDriverKind.make("codex"),
+        instanceId: "codex",
+        models: [model("gpt-5.6", false, true)],
+      }),
+    ];
+
+    expect(resolveDefaultProviderModelSelection(providers, null)).toEqual({
+      instanceId: "sigma",
+      model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+    });
+  });
+
   it.each([
     ["codex", "codex", "gpt-5.6"],
     ["claudeAgent", "claudeAgent", "claude-fable-5"],

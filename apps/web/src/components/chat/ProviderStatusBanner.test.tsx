@@ -18,6 +18,7 @@ function warningProvider(): ServerProvider {
     version: "1.0.0",
     status: "warning",
     auth: { status: "authenticated" },
+    authConnections: [],
     checkedAt: "2026-07-23T12:00:00.000Z",
     message: "Provider is temporarily degraded.",
     models: [],

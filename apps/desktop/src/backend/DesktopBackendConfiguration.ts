@@ -84,6 +84,7 @@ const DESKTOP_BACKEND_ENV_NAMES = [
   "SIGMACODE_DESKTOP_HTTPS_ENDPOINTS",
   "SIGMACODE_TAILSCALE_SERVE",
   "SIGMACODE_TAILSCALE_SERVE_PORT",
+  "SIGMACODE_SYSTEM_PROXY_URL",
 ] as const;
 
 export const BUNDLED_SIGMA_BINARY_ENV = "SIGMACODE_BUNDLED_SIGMA_PATH";
@@ -98,6 +99,37 @@ const WSL_SERVER_SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bi
 
 const backendChildEnvPatch = (): Record<string, string | undefined> =>
   Object.fromEntries(DESKTOP_BACKEND_ENV_NAMES.map((name) => [name, undefined]));
+
+const CHATGPT_AUTH_PROXY_PROBE_URL = "https://auth.openai.com";
+
+export function parseElectronProxyResolution(value: string): string | undefined {
+  const [firstDirective] = value.split(";");
+  const [kind, address] = firstDirective?.trim().split(/\s+/, 2) ?? [];
+  if (!kind || !address || !["PROXY", "HTTP", "HTTPS"].includes(kind.toUpperCase())) {
+    return undefined;
+  }
+  try {
+    const protocol = kind.toUpperCase() === "HTTPS" ? "https:" : "http:";
+    const parsed = new URL(`${protocol}//${address}`);
+    if (!parsed.hostname || !parsed.port || parsed.username || parsed.password) return undefined;
+    return parsed.toString().replace(/\/$/u, "");
+  } catch {
+    return undefined;
+  }
+}
+
+const resolveDesktopSystemProxyUrl = Effect.promise(async () => {
+  try {
+    const electron = await import("electron");
+    const defaultSession = electron.session?.defaultSession;
+    if (!defaultSession) return undefined;
+    return parseElectronProxyResolution(
+      await defaultSession.resolveProxy(CHATGPT_AUTH_PROXY_PROBE_URL),
+    );
+  } catch {
+    return undefined;
+  }
+});
 
 export const resolveBundledSigmaBinaryPath = Effect.fn(
   "desktop.backendConfiguration.resolveBundledSigmaBinaryPath",
@@ -364,6 +396,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const backendExposure = yield* serverExposure.backendConfig;
     const bundledSigmaBinaryPath = yield* resolveBundledSigmaBinaryPath();
+    const systemProxyUrl = yield* resolveDesktopSystemProxyUrl;
 
     const bootstrap = {
       mode: "desktop" as const,
@@ -388,6 +421,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ...(bundledSigmaBinaryPath === undefined
           ? {}
           : { [BUNDLED_SIGMA_BINARY_ENV]: bundledSigmaBinaryPath }),
+        ...(systemProxyUrl === undefined ? {} : { SIGMACODE_SYSTEM_PROXY_URL: systemProxyUrl }),
       },
       // Primary wants process.env (PATH, dev-runner's SIGMACODE_HOME, etc.).
       extendEnv: true,

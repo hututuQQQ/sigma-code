@@ -115,6 +115,7 @@ function provider(updateStatus?: "succeeded"): ServerProvider {
     version: updateStatus ? "1.1.0" : "1.0.0",
     status: "ready",
     auth: { status: "authenticated" },
+    authConnections: [],
     checkedAt: "2026-06-26T12:00:00.000Z",
     models: [],
     slashCommands: [],

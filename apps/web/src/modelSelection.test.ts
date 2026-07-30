@@ -26,6 +26,7 @@ function provider(input: {
     version: null,
     status: "ready",
     auth: { status: "authenticated" },
+    authConnections: [],
     checkedAt: "2026-01-01T00:00:00.000Z",
     models: (input.models ?? []).map((slug) => ({
       slug,

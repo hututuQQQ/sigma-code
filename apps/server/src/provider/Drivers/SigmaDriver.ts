@@ -25,6 +25,8 @@ import {
 } from "../ProviderDriver.ts";
 import type { ServerProviderDraft } from "../providerSnapshot.ts";
 import { mergeProviderInstanceEnvironment } from "../ProviderInstanceEnvironment.ts";
+import { makeSigmaPiAuthCapability } from "../SigmaPiCapability.ts";
+import { resolveSigmaProcessEnvironment } from "../SigmaProxyEnvironment.ts";
 import {
   makeManualOnlyProviderMaintenanceCapabilities,
   makeStaticProviderMaintenanceResolver,
@@ -86,7 +88,8 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const serverSettings = yield* ServerSettingsService;
       const eventLoggers = yield* ProviderEventLoggers;
-      const processEnv = mergeProviderInstanceEnvironment(environment);
+      const instanceEnvironment = mergeProviderInstanceEnvironment(environment);
+      const processEnv = resolveSigmaProcessEnvironment(instanceEnvironment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
         instanceId,
@@ -104,11 +107,16 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
       });
 
       const adapter = yield* makeSigmaAdapter(effectiveConfig, {
-        environment: processEnv,
+        environment: instanceEnvironment,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
         instanceId,
       });
-      const textGeneration = yield* makeSigmaTextGeneration(effectiveConfig, processEnv);
+      const textGeneration = yield* makeSigmaTextGeneration(effectiveConfig, instanceEnvironment);
+      const auth = makeSigmaPiAuthCapability({
+        settings: effectiveConfig,
+        environment: instanceEnvironment,
+        spawner,
+      });
       const checkProvider = checkSigmaProviderStatus(effectiveConfig, processEnv).pipe(
         Effect.map(stampIdentity),
         Effect.provideService(Crypto.Crypto, crypto),
@@ -147,6 +155,7 @@ export const SigmaDriver: ProviderDriver<SigmaSettings, SigmaDriverEnv> = {
         snapshot,
         adapter,
         textGeneration,
+        auth,
       } satisfies ProviderInstance;
     }),
 };

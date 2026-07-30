@@ -65,6 +65,7 @@ function provider(input: {
     version: input.version ?? "1.0.0",
     status: "ready",
     auth: { status: "authenticated" },
+    authConnections: [],
     checkedAt,
     models: [],
     slashCommands: [],
@@ -286,7 +287,7 @@ describe("provider update launch notification logic", () => {
     expect(view).toMatchObject({
       phase: "initial",
       type: "warning",
-      title: "Update Available: Codex v1.1.0",
+      title: "Update Available: Codex CLI（独立 Agent） v1.1.0",
       description: "Install the update now or review provider settings.",
     });
   });
@@ -300,7 +301,9 @@ describe("provider update launch notification logic", () => {
       oneClickProviders: [],
     });
 
-    expect(view.description).toBe("Codex and Cursor can be updated from provider settings.");
+    expect(view.description).toBe(
+      "Codex CLI（独立 Agent） and Cursor can be updated from provider settings.",
+    );
   });
 
   it("uses server update state for running progress", () => {
@@ -369,7 +372,7 @@ describe("provider update launch notification logic", () => {
     expect(view).toMatchObject({
       phase: "failed",
       type: "error",
-      title: "Codex v1.1.0 update failed",
+      title: "Codex CLI（独立 Agent） v1.1.0 update failed",
       description: "command failed",
     });
   });
@@ -448,7 +451,7 @@ describe("provider update launch notification logic", () => {
     expect(view).toMatchObject({
       phase: "succeeded",
       type: "success",
-      title: "Codex updated: v1.1.0",
+      title: "Codex CLI（独立 Agent） updated: v1.1.0",
       description: "New sessions will use the updated provider.",
     });
   });
@@ -504,7 +507,7 @@ describe("provider update launch notification logic", () => {
     expect(view).toMatchObject({
       tone: "loading",
       title: "Updating 2 providers",
-      description: "Codex and Cursor updates are in progress.",
+      description: "Codex CLI（独立 Agent） and Cursor updates are in progress.",
     });
   });
 
@@ -525,8 +528,8 @@ describe("provider update launch notification logic", () => {
     expect(view).toMatchObject({
       key: "loading:codex:running",
       tone: "loading",
-      title: "Updating Codex",
-      description: "Codex update in progress.",
+      title: "Updating Codex CLI（独立 Agent）",
+      description: "Codex CLI（独立 Agent） update in progress.",
     });
   });
 
@@ -579,7 +582,7 @@ describe("provider update launch notification logic", () => {
     expect(view).toMatchObject({
       key: "succeeded:codex:2026-04-23T10:00:00.000Z:Provider updated.",
       tone: "success",
-      title: "Codex updated: v1.1.0",
+      title: "Codex CLI（独立 Agent） updated: v1.1.0",
       description: "New sessions will use the updated provider.",
       dismissAfterVisibleMs: 3_000,
     });
@@ -663,7 +666,7 @@ describe("provider update launch notification logic", () => {
     expect(successView).toMatchObject({
       key: "succeeded:codex:2026-04-23T10:01:00.000Z:Provider updated.",
       tone: "success",
-      title: "Codex updated: v1.2.0",
+      title: "Codex CLI（独立 Agent） updated: v1.2.0",
     });
 
     const failureView = getProviderUpdateSidebarPillView(providers, {
@@ -1109,7 +1112,7 @@ describe("provider update launch notification logic", () => {
           pill: null,
           isPending: false,
         }),
-      ).toMatchObject({ kind: "idle", text: "Codex" });
+      ).toMatchObject({ kind: "idle", text: "Codex CLI（独立 Agent）" });
     });
   });
 });

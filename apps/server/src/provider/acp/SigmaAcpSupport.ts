@@ -1,4 +1,9 @@
-import { type SigmaSettings, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
+  type ModelSelection,
+  type SigmaSettings,
+  ProviderDriverKind,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -9,9 +14,10 @@ import type * as EffectAcpSchema from "effect-acp/schema";
 import { normalizeModelSlug } from "@t3tools/shared/model";
 
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
+import { resolveSigmaProcessEnvironment } from "../SigmaProxyEnvironment.ts";
 
 const SIGMA_DRIVER_KIND = ProviderDriverKind.make("sigma");
-const DEFAULT_SIGMA_MODEL = "deepseek/deepseek-v4-pro";
+const DEFAULT_SIGMA_MODEL = DEFAULT_SIGMA_SUBSCRIPTION_MODEL;
 const SIGMA_MODEL_CONFIG_ID = "sigma.model";
 const DEFAULT_SIGMA_BINARY = "sigma";
 
@@ -30,6 +36,15 @@ export interface SigmaAcpRuntimeInput extends Omit<
    */
   readonly grokSettings: SigmaAcpRuntimeSettings | null | undefined;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly modelSelection?: ModelSelection;
+}
+
+function allowsUnpricedCosts(selection: ModelSelection | undefined): boolean {
+  return Boolean(
+    selection?.options?.some(
+      (option) => option.id === "allowUnpricedCosts" && option.value === true,
+    ),
+  );
 }
 
 export function resolveSigmaBinaryPath(
@@ -49,12 +64,19 @@ export function buildSigmaAcpSpawnInput(
   settings: SigmaAcpRuntimeSettings | null | undefined,
   cwd: string,
   environment?: NodeJS.ProcessEnv,
+  modelSelection?: ModelSelection,
 ): AcpSessionRuntime.AcpSpawnInput {
+  const spawnEnvironment =
+    environment === undefined
+      ? undefined
+      : resolveSigmaProcessEnvironment(environment, {
+          useDesktopSystemProxy: modelSelection?.model.startsWith("openai-codex/") === true,
+        });
   return {
     command: resolveSigmaBinaryPath(settings, environment),
-    args: ["acp"],
+    args: ["acp", ...(allowsUnpricedCosts(modelSelection) ? ["--allow-unpriced-costs"] : [])],
     cwd,
-    ...(environment === undefined ? {} : { env: environment }),
+    ...(spawnEnvironment === undefined ? {} : { env: spawnEnvironment }),
   };
 }
 
@@ -69,7 +91,12 @@ export const makeSigmaAcpRuntime = (
     const acpContext = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...input,
-        spawn: buildSigmaAcpSpawnInput(input.grokSettings, input.cwd, input.environment),
+        spawn: buildSigmaAcpSpawnInput(
+          input.grokSettings,
+          input.cwd,
+          input.environment,
+          input.modelSelection,
+        ),
         // Sigma authenticates its own model gateways. The runtime skips this
         // id because Sigma ACP intentionally advertises no auth methods.
         authMethodId: "sigma.local",

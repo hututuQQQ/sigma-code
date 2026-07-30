@@ -27,6 +27,39 @@ afterEach(() => {
 });
 
 describe("theme failure handling", () => {
+  it("leaves the desktop document transparent for native backdrop materials", async () => {
+    const removeDocumentBackground = vi.fn();
+    const removeBodyBackground = vi.fn();
+    const removeThemeColor = vi.fn();
+    vi.stubGlobal("getComputedStyle", vi.fn());
+    vi.stubGlobal("window", {
+      desktopBridge: { setTheme: vi.fn().mockResolvedValue(undefined) },
+      localStorage: createStorage(),
+      matchMedia: () => ({ matches: false }),
+    });
+    vi.stubGlobal("document", {
+      body: {
+        style: { removeProperty: removeBodyBackground },
+      },
+      documentElement: {
+        classList: { toggle: vi.fn() },
+        style: { removeProperty: removeDocumentBackground },
+      },
+      querySelector: () => ({ remove: removeThemeColor }),
+    });
+
+    const { syncBrowserChromeTheme } = await import("./useTheme");
+    removeDocumentBackground.mockClear();
+    removeBodyBackground.mockClear();
+    removeThemeColor.mockClear();
+
+    syncBrowserChromeTheme();
+
+    expect(removeDocumentBackground).toHaveBeenCalledExactlyOnceWith("background-color");
+    expect(removeBodyBackground).toHaveBeenCalledExactlyOnceWith("background-color");
+    expect(removeThemeColor).toHaveBeenCalledExactlyOnceWith();
+  });
+
   it("preserves exact storage causes and operation context", async () => {
     const readCause = new Error("storage read blocked");
     const writeCause = new Error("storage quota exceeded");

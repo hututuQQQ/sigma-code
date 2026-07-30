@@ -22,6 +22,8 @@
  * @module provider/ProviderDriver
  */
 import type {
+  ProviderAuthLoginMethod,
+  ProviderAuthRpcError,
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
@@ -29,11 +31,65 @@ import type {
 import type * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
+import type * as Stream from "effect/Stream";
 
 import type * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { ProviderAdapterError, ProviderDriverError } from "./Errors.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider.ts";
+
+export type ProviderAuthCapabilityInput =
+  | {
+      readonly type: "input_response";
+      readonly promptId: string;
+      readonly value: string;
+    }
+  | { readonly type: "cancel" };
+
+export type ProviderAuthCapabilityEvent =
+  | {
+      readonly type: "auth_url";
+      readonly url: string;
+      readonly instructions?: string;
+    }
+  | {
+      readonly type: "device_code";
+      readonly userCode: string;
+      readonly verificationUri: string;
+      readonly intervalSeconds?: number;
+      readonly expiresInSeconds?: number;
+    }
+  | { readonly type: "progress"; readonly message: string }
+  | {
+      readonly type: "input_required";
+      readonly promptId: string;
+      readonly inputType: "text" | "secret" | "select" | "manual_code";
+      readonly message: string;
+      readonly placeholder?: string;
+      readonly options?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+    }
+  | {
+      readonly type: "completed";
+      readonly status: "authenticated";
+      readonly email?: string;
+    }
+  | {
+      readonly type: "error";
+      readonly code: string;
+      readonly message: string;
+      readonly retryable: boolean;
+    };
+
+export interface ProviderAuthCapability {
+  readonly scopeKey: (connectionId: string) => string | undefined;
+  readonly login: (input: {
+    readonly connectionId: string;
+    readonly loginMethod: ProviderAuthLoginMethod;
+    readonly responses: Stream.Stream<ProviderAuthCapabilityInput>;
+    readonly emit: (event: ProviderAuthCapabilityEvent) => Effect.Effect<void>;
+  }) => Effect.Effect<void, ProviderAuthRpcError, Scope.Scope>;
+  readonly logout: (connectionId: string) => Effect.Effect<void, ProviderAuthRpcError, Scope.Scope>;
+}
 
 /**
  * Static metadata advertised by a driver. Used for default presentation
@@ -71,6 +127,7 @@ export interface ProviderInstance {
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
   readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  readonly auth?: ProviderAuthCapability;
 }
 
 export interface ProviderContinuationIdentity {

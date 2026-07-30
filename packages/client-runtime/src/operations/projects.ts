@@ -1,6 +1,7 @@
 import type {
   CommandId,
   EnvironmentId,
+  ModelSelection,
   OrchestrationCommand,
   ProjectId,
   SourceControlDiscoveryResult,
@@ -206,6 +207,7 @@ export function buildProjectCreateCommand(input: {
   readonly projectId: ProjectId;
   readonly workspaceRoot: string;
   readonly createdAt: string;
+  readonly defaultModelSelection: ModelSelection | null;
 }): Extract<OrchestrationCommand, { type: "project.create" }> {
   return {
     type: "project.create",
@@ -214,7 +216,7 @@ export function buildProjectCreateCommand(input: {
     title: inferProjectTitleFromPath(input.workspaceRoot),
     workspaceRoot: input.workspaceRoot,
     createWorkspaceRootIfMissing: true,
-    defaultModelSelection: null,
+    defaultModelSelection: input.defaultModelSelection,
     createdAt: input.createdAt,
   };
 }

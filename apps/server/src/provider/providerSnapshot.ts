@@ -3,6 +3,7 @@ import type {
   ModelCapabilities,
   ServerProvider,
   ServerProviderAuth,
+  ServerProviderAuthConnection,
   ServerProviderSkill,
   ServerProviderSlashCommand,
   ServerProviderModel,
@@ -213,6 +214,7 @@ export function buildServerProvider(input: {
   enabled: boolean;
   checkedAt: string;
   models: ReadonlyArray<ServerProviderModel>;
+  authConnections?: ReadonlyArray<ServerProviderAuthConnection>;
   slashCommands?: ReadonlyArray<ServerProviderSlashCommand>;
   skills?: ReadonlyArray<ServerProviderSkill>;
   probe: ProviderProbeResult;
@@ -243,6 +245,7 @@ export function buildServerProvider(input: {
     models: input.models,
     slashCommands: [...(input.slashCommands ?? [])],
     skills: [...(input.skills ?? [])],
+    authConnections: [...(input.authConnections ?? [])],
     ...(versionAdvisory ? { versionAdvisory } : {}),
   };
 }

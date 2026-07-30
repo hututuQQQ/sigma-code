@@ -139,6 +139,31 @@ const withHarness = <A, E, R>(
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
 describe("DesktopBackendConfiguration", () => {
+  it("parses Chromium proxy resolution without accepting SOCKS or credentials", () => {
+    assert.isUndefined(
+      DesktopBackendConfiguration.parseElectronProxyResolution(
+        "SOCKS5 127.0.0.1:1080; PROXY 127.0.0.1:7890; DIRECT",
+      ),
+    );
+    assert.isUndefined(
+      DesktopBackendConfiguration.parseElectronProxyResolution("DIRECT; PROXY 127.0.0.1:7890"),
+    );
+    assert.equal(
+      DesktopBackendConfiguration.parseElectronProxyResolution("PROXY 127.0.0.1:7890; DIRECT"),
+      "http://127.0.0.1:7890",
+    );
+    assert.equal(
+      DesktopBackendConfiguration.parseElectronProxyResolution("HTTPS proxy.example.test:8443"),
+      "https://proxy.example.test:8443",
+    );
+    assert.isUndefined(
+      DesktopBackendConfiguration.parseElectronProxyResolution(
+        "PROXY user:password@proxy.example.test:8080; DIRECT",
+      ),
+    );
+    assert.isUndefined(DesktopBackendConfiguration.parseElectronProxyResolution("DIRECT"));
+  });
+
   it.effect("resolvePrimary produces a stable scoped bootstrap token", () =>
     withHarness(
       Effect.gen(function* () {

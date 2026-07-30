@@ -73,6 +73,17 @@ const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
 const decodeNodePtyManifest = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
 );
+const decodeBundledRuntimeIntegrityManifest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      entries: Schema.Array(
+        Schema.Struct({
+          path: Schema.String,
+        }),
+      ),
+    }),
+  ),
+);
 const encodeStageWorkspaceConfig = Schema.encodeEffect(fromYaml(StageWorkspaceConfig));
 
 const readWorkspaceConfig = Effect.fn("readWorkspaceConfig")(function* () {
@@ -1410,6 +1421,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   signed: boolean,
   mockUpdates: boolean,
   mockUpdateServerPort: number | undefined,
+  sigmaRuntimeExactCopyPaths: ReadonlyArray<string>,
   macPasskeySigning:
     | {
         readonly entitlementsPath: string;
@@ -1449,8 +1461,15 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // electron-builder deliberately skips a FileSet whose source root is
       // named `node_modules`. Match from the staged app root so Sigma
       // Runtime's own node_modules remains a nested directory and is copied
-      // intact into resources/sigma-runtime.
+      // byte-for-byte into resources/sigma-runtime.
       { from: ".", to: ".", filter: ["sigma-runtime/**/*"] },
+      // electron-builder excludes `.gitkeep` even inside an explicit FileSet.
+      // Exact file mappings bypass that default filter, preserving every entry
+      // declared by the verified Runtime integrity manifest.
+      ...sigmaRuntimeExactCopyPaths.map((relativePath) => ({
+        from: `sigma-runtime/${relativePath}`,
+        to: `sigma-runtime/${relativePath}`,
+      })),
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
@@ -1645,8 +1664,18 @@ export const stageBundledSigmaRuntime = Effect.fn("stageBundledSigmaRuntime")(fu
     });
   }
 
+  const integrityManifest = yield* fs.readFileString(
+    path.join(input.runtimePath, "integrity-manifest.json"),
+  );
+  const decodedIntegrityManifest = yield* decodeBundledRuntimeIntegrityManifest(integrityManifest);
+  const exactCopyPaths = decodedIntegrityManifest.entries
+    .map((entry) => entry.path.replaceAll("\\", "/"))
+    .filter((relativePath) => path.basename(relativePath) === ".gitkeep")
+    .sort();
+
   yield* fs.copy(input.runtimePath, path.join(input.stageAppDir, "sigma-runtime"));
   yield* Effect.log(`[desktop-artifact] Staged bundled Sigma Runtime from ${input.runtimePath}.`);
+  return exactCopyPaths;
 });
 
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
@@ -1781,7 +1810,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       path.join(legalDir, legalResource.targetFileName),
     );
   }
-  yield* stageBundledSigmaRuntime({
+  const sigmaRuntimeExactCopyPaths = yield* stageBundledSigmaRuntime({
     stageAppDir,
     platform: options.platform,
     runtimePath: options.sigmaRuntime,
@@ -1870,6 +1899,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       options.signed,
       options.mockUpdates,
       options.mockUpdateServerPort,
+      sigmaRuntimeExactCopyPaths,
       macPasskeySigning && macEntitlementsPath
         ? {
             entitlementsPath: macEntitlementsPath,

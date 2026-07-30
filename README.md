@@ -30,12 +30,28 @@ The application uses its own identities and state:
 It never migrates, reads, or writes `~/.t3` or the official T3 Code application
 data.
 
-Sigma Code retains the other upstream providers. Install and authenticate any
-provider you intend to use:
+The default path is **Sigma Runtime + ChatGPT subscription (experimental)**.
+In the Windows desktop app, choose a Sigma subscription model and click
+**Login with ChatGPT** once. Sigma keeps running the task, tools, recovery,
+reviewer, strategist, and persistence; model requests use the ChatGPT/Codex
+subscription allowance and do not require `OPENAI_API_KEY`. Authentication,
+allowance, and network failures are shown directly and never trigger a silent
+fallback to another paid provider.
 
-- Sigma: desktop artifacts include a verified Sigma Runtime; development builds
-  use `sigma` on `PATH` unless a binary path is configured
-- Codex: install Codex CLI and run `codex login`
+Sigma Runtime's model layer is backed by the pinned Pi directory. Settings
+shows one searchable model connection per underlying provider, with API-key
+and OAuth methods supplied by the trusted Runtime. The full 1,100+ model
+catalog remains searchable without rendering every model in the default
+picker. Models with unverified pricing require explicit confirmation for the
+current task and are shown as “Price unknown”, never as `$0`.
+
+Sigma Code also retains the upstream providers. Install and authenticate any
+separate provider you intend to use:
+
+- Sigma Runtime + Pi model connections: desktop artifacts include a verified
+  Sigma Runtime; ChatGPT, API-key, and supported OAuth logins are managed from
+  Sigma Code
+- Codex CLI（独立 Agent）: install Codex CLI and run `codex login`
 - Claude: install Claude Code and run `claude auth login`
 - Cursor: install Cursor CLI and run `cursor-agent login`
 - Grok Build: install Grok Build CLI and run `grok login`
@@ -86,6 +102,7 @@ installer cannot silently ship without the Sigma provider.
 ## Documentation
 
 - [Getting started](./docs/getting-started/quick-start.md)
+- [ChatGPT subscription login](./docs/getting-started/chatgpt-subscription.md)
 - [Architecture overview](./docs/architecture/overview.md)
 - [Provider guides](./docs/providers)
 - [Operations](./docs/operations/ci.md)

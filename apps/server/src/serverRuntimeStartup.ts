@@ -1,6 +1,6 @@
 import {
   CommandId,
-  DEFAULT_MODEL,
+  DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   type ModelSelection,
   ProjectId,
@@ -33,7 +33,12 @@ import * as ServerSettings from "./serverSettings.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderSessionReaper from "./provider/Services/ProviderSessionReaper.ts";
+import {
+  isSubscriptionDefaultMigrationCompleted,
+  migrateSubscriptionDefaults,
+} from "./orchestration/subscriptionDefaultMigration.ts";
 import {
   formatHeadlessServeOutput,
   formatHostForUrl,
@@ -162,8 +167,8 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
 );
 
 export const getAutoBootstrapDefaultModelSelection = (): ModelSelection => ({
-  instanceId: ProviderInstanceId.make("codex"),
-  model: DEFAULT_MODEL,
+  instanceId: ProviderInstanceId.make("sigma"),
+  model: DEFAULT_SIGMA_SUBSCRIPTION_MODEL,
 });
 
 export const resolveWelcomeBase = Effect.gen(function* () {
@@ -293,6 +298,7 @@ export const make = Effect.gen(function* () {
   const keybindings = yield* Keybindings.Keybindings;
   const orchestrationReactor = yield* OrchestrationReactor.OrchestrationReactor;
   const providerSessionReaper = yield* ProviderSessionReaper.ProviderSessionReaper;
+  const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
@@ -344,6 +350,33 @@ export const make = Effect.gen(function* () {
         yield* orchestrationReactor.start().pipe(Scope.provide(reactorScope));
         yield* providerSessionReaper.start().pipe(Scope.provide(reactorScope));
       }),
+    );
+
+    yield* runStartupPhase(
+      "subscription-defaults.migrate.schedule",
+      Effect.forkIn(
+        Effect.gen(function* () {
+          if (yield* isSubscriptionDefaultMigrationCompleted()) return;
+          const refreshedProviders = yield* providerRegistry.refreshInstance(
+            ProviderInstanceId.make("sigma"),
+          );
+          const result = yield* migrateSubscriptionDefaults(refreshedProviders);
+          if (result.migratedProjects + result.migratedThreads > 0) {
+            yield* Effect.logInfo(
+              "Migrated untouched welcome tasks to the Sigma subscription default",
+              {
+                migratedProjects: result.migratedProjects,
+                migratedThreads: result.migratedThreads,
+              },
+            );
+          }
+        }).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Could not migrate legacy automatic model defaults", { cause }),
+          ),
+        ),
+        reactorScope,
+      ).pipe(Effect.asVoid),
     );
 
     const welcomeBase = yield* resolveWelcomeBase;

@@ -31,10 +31,50 @@ import { SigmaDriver } from "./SigmaDriver.ts";
 const decodeSigmaSettings = Schema.decodeSync(SigmaSettings);
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const mockAgentPath = NodePath.join(__dirname, "../../../scripts/acp-mock-agent.ts");
+const mockAuthConnection = {
+  id: "openai-codex",
+  name: "OpenAI Codex",
+  dynamic: false,
+  authMethods: [
+    {
+      id: "browser",
+      label: "Login with ChatGPT",
+      kind: "oauth",
+      billingMode: "subscription",
+    },
+  ],
+  status: "unauthenticated",
+} as const;
+const mockAuthList = JSON.stringify({
+  schemaVersion: 1,
+  connections: [mockAuthConnection],
+});
+const mockModelsList = JSON.stringify({
+  schemaVersion: 1,
+  piVersion: "0.82.1",
+  providers: [mockAuthConnection],
+  models: [
+    {
+      provider: "openai-codex",
+      id: "gpt-5.6-terra",
+      slug: "openai-codex/gpt-5.6-terra",
+      name: "GPT-5.6 Terra",
+      api: "openai-codex-responses",
+      contextWindowTokens: 400_000,
+      maxOutputTokens: 128_000,
+      reasoning: true,
+      imageInput: false,
+      billingModes: ["subscription"],
+      activeBillingMode: null,
+      isRecommended: true,
+    },
+  ],
+});
 
 async function makeMockSigmaBinary(
   requestLogPath: string,
   platform: NodeJS.Platform,
+  versionDelayMs = 0,
 ): Promise<{
   readonly directory: string;
   readonly binaryPath: string;
@@ -45,7 +85,22 @@ async function makeMockSigmaBinary(
     const script = [
       "@echo off",
       'if "%~1"=="--version" (',
+      ...(versionDelayMs > 0
+        ? [`  "${process.execPath}" -e "setTimeout(() => {}, ${versionDelayMs})"`]
+        : []),
       "  echo Sigma Code 0.1.0-test",
+      "  exit /b 0",
+      ")",
+      'if "%~1"=="auth" if "%~2"=="status" (',
+      '  echo {"provider":"openai-codex","status":"unauthenticated"}',
+      "  exit /b 0",
+      ")",
+      'if "%~1"=="auth" if "%~2"=="list" (',
+      `  echo ${mockAuthList}`,
+      "  exit /b 0",
+      ")",
+      'if "%~1"=="models" if "%~2"=="list" (',
+      `  echo ${mockModelsList}`,
       "  exit /b 0",
       ")",
       `set "T3_ACP_REQUEST_LOG_PATH=${requestLogPath}"`,
@@ -64,7 +119,22 @@ async function makeMockSigmaBinary(
   const script = [
     "#!/bin/sh",
     'if [ "$1" = "--version" ]; then',
+    ...(versionDelayMs > 0
+      ? [`  ${JSON.stringify(process.execPath)} -e 'setTimeout(() => {}, ${versionDelayMs})'`]
+      : []),
     '  echo "Sigma Code 0.1.0-test"',
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+    '  echo \'{"provider":"openai-codex","status":"unauthenticated"}\'',
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "auth" ] && [ "$2" = "list" ]; then',
+    `  echo '${mockAuthList}'`,
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "models" ] && [ "$2" = "list" ]; then',
+    `  echo '${mockModelsList}'`,
     "  exit 0",
     "fi",
     `export T3_ACP_REQUEST_LOG_PATH=${JSON.stringify(requestLogPath)}`,
@@ -145,6 +215,20 @@ describe("SigmaDriver integration", () => {
           assert.strictEqual(instance.driverKind, ProviderDriverKind.make("sigma"));
           assert.strictEqual(instance.adapter.provider, ProviderDriverKind.make("sigma"));
           assert.strictEqual(instance.adapter.capabilities.sessionModelSwitch, "unsupported");
+
+          const initialSnapshot = yield* instance.snapshot.getSnapshot;
+          assert.isTrue(
+            initialSnapshot.models.some(
+              (model) =>
+                model.slug === "openai-codex/gpt-5.6-terra" &&
+                model.authConnectionId === "openai-codex",
+            ),
+          );
+          assert.isTrue(
+            (initialSnapshot.authConnections ?? []).some(
+              (connection) => connection.id === "openai-codex" && connection.status === "unknown",
+            ),
+          );
 
           const providerSnapshot = yield* instance.snapshot.refresh;
           assert.strictEqual(providerSnapshot.status, "ready");
@@ -297,14 +381,16 @@ describe("SigmaDriver integration", () => {
         }),
     );
 
-    it.effect("uses the bundled Runtime when the provider has its default binary setting", () =>
+    it.effect("allows a cold-start delay while probing the bundled Runtime version", () =>
       Effect.gen(function* () {
         const requestLogDir = yield* Effect.promise(() =>
           NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "sigma-driver-bundled-request-log-")),
         );
         const requestLogPath = NodePath.join(requestLogDir, "requests.ndjson");
         const platform = yield* HostProcessPlatform;
-        const mock = yield* Effect.promise(() => makeMockSigmaBinary(requestLogPath, platform));
+        const mock = yield* Effect.promise(() =>
+          makeMockSigmaBinary(requestLogPath, platform, 4_250),
+        );
         yield* Effect.addFinalizer(() =>
           Effect.promise(() =>
             Promise.all([

@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import { ExecutionEnvironmentDescriptor, ServerSelfUpdateMethod } from "./environment.ts";
 import { ServerAuthDescriptor } from "./auth.ts";
 import {
@@ -58,6 +59,68 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
+export const ProviderBillingMode = Schema.Literals(["metered", "subscription", "unpriced"]);
+export type ProviderBillingMode = typeof ProviderBillingMode.Type;
+
+export const ProviderAuthLoginMethod = TrimmedNonEmptyString;
+export type ProviderAuthLoginMethod = typeof ProviderAuthLoginMethod.Type;
+
+export const ProviderAuthMethodKind = Schema.Literals(["api_key", "oauth"]);
+export type ProviderAuthMethodKind = typeof ProviderAuthMethodKind.Type;
+
+export const ProviderAuthMethod = Schema.Struct({
+  id: ProviderAuthLoginMethod,
+  label: TrimmedNonEmptyString,
+  kind: ProviderAuthMethodKind,
+  billingMode: ProviderBillingMode,
+});
+export type ProviderAuthMethod = typeof ProviderAuthMethod.Type;
+
+const LegacyProviderAuthLoginMethod = Schema.Literals(["browser", "device-code"]);
+const LegacyProviderAuthMethod = LegacyProviderAuthLoginMethod.pipe(
+  Schema.decodeTo(
+    ProviderAuthMethod,
+    SchemaTransformation.transformOrFail({
+      decode: (id) =>
+        Effect.succeed({
+          id,
+          label: id === "browser" ? "Login in browser" : "Use device code",
+          kind: "oauth",
+          billingMode: "subscription",
+        } as typeof ProviderAuthMethod.Encoded),
+      encode: (method) =>
+        Effect.succeed(
+          (method.id === "device-code"
+            ? "device-code"
+            : "browser") as typeof LegacyProviderAuthLoginMethod.Encoded,
+        ),
+    }),
+  ),
+);
+const ProviderAuthMethods = Schema.Array(
+  Schema.Union([ProviderAuthMethod, LegacyProviderAuthMethod]),
+);
+
+export const ServerProviderAuthConnectionScope = Schema.Literals(["host", "instance"]);
+export type ServerProviderAuthConnectionScope = typeof ServerProviderAuthConnectionScope.Type;
+
+export const ServerProviderAuthConnectionAction = Schema.Literals(["login", "logout"]);
+export type ServerProviderAuthConnectionAction = typeof ServerProviderAuthConnectionAction.Type;
+
+export const ServerProviderAuthConnection = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  status: ServerProviderAuthStatus,
+  email: Schema.optional(TrimmedNonEmptyString),
+  loginMethods: ProviderAuthMethods,
+  authType: Schema.optional(ProviderAuthMethodKind),
+  source: Schema.optional(TrimmedNonEmptyString),
+  scope: ServerProviderAuthConnectionScope,
+  actions: Schema.Array(ServerProviderAuthConnectionAction),
+  experimental: Schema.optional(Schema.Boolean),
+});
+export type ServerProviderAuthConnection = typeof ServerProviderAuthConnection.Type;
+
 export const ServerProviderModel = Schema.Struct({
   slug: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
@@ -65,6 +128,10 @@ export const ServerProviderModel = Schema.Struct({
   subProvider: Schema.optional(TrimmedNonEmptyString),
   isCustom: Schema.Boolean,
   isDefault: Schema.optional(Schema.Boolean),
+  authConnectionId: Schema.optional(TrimmedNonEmptyString),
+  billingModes: Schema.optional(Schema.Array(ProviderBillingMode)),
+  activeBillingMode: Schema.optional(ProviderBillingMode),
+  isRecommended: Schema.optional(Schema.Boolean),
   capabilities: Schema.NullOr(ModelCapabilities),
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
@@ -188,6 +255,9 @@ export const ServerProvider = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   skills: Schema.Array(ServerProviderSkill).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  // Optional on the wire so older provider snapshots and cached server
+  // configs remain decodable. Current servers always emit an array.
+  authConnections: Schema.optional(Schema.Array(ServerProviderAuthConnection)),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
 });
@@ -555,6 +625,122 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ProviderAuthOperationId = TrimmedNonEmptyString;
+export type ProviderAuthOperationId = typeof ProviderAuthOperationId.Type;
+
+export const ProviderAuthPromptId = TrimmedNonEmptyString;
+export type ProviderAuthPromptId = typeof ProviderAuthPromptId.Type;
+
+export const ProviderAuthStartInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  connectionId: TrimmedNonEmptyString,
+  loginMethod: ProviderAuthLoginMethod,
+});
+export type ProviderAuthStartInput = typeof ProviderAuthStartInput.Type;
+
+export const ProviderAuthStartResult = Schema.Struct({
+  operationId: ProviderAuthOperationId,
+});
+export type ProviderAuthStartResult = typeof ProviderAuthStartResult.Type;
+
+export const ProviderAuthRespondInput = Schema.Struct({
+  operationId: ProviderAuthOperationId,
+  promptId: ProviderAuthPromptId,
+  value: Schema.String,
+});
+export type ProviderAuthRespondInput = typeof ProviderAuthRespondInput.Type;
+
+export const ProviderAuthCancelInput = Schema.Struct({
+  operationId: ProviderAuthOperationId,
+});
+export type ProviderAuthCancelInput = typeof ProviderAuthCancelInput.Type;
+
+export const ProviderAuthLogoutInput = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  connectionId: TrimmedNonEmptyString,
+});
+export type ProviderAuthLogoutInput = typeof ProviderAuthLogoutInput.Type;
+
+export const ProviderAuthSubscribeInput = Schema.Struct({
+  operationId: ProviderAuthOperationId,
+});
+export type ProviderAuthSubscribeInput = typeof ProviderAuthSubscribeInput.Type;
+
+const ProviderAuthEventBase = {
+  operationId: ProviderAuthOperationId,
+  sequence: NonNegativeInt,
+} as const;
+
+export const ProviderAuthInputOption = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+});
+export type ProviderAuthInputOption = typeof ProviderAuthInputOption.Type;
+
+export const ProviderAuthOperationEvent = Schema.Union([
+  Schema.Struct({
+    ...ProviderAuthEventBase,
+    type: Schema.Literal("auth_url"),
+    url: TrimmedNonEmptyString,
+    instructions: Schema.optional(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    ...ProviderAuthEventBase,
+    type: Schema.Literal("device_code"),
+    userCode: TrimmedNonEmptyString,
+    verificationUri: TrimmedNonEmptyString,
+    intervalSeconds: Schema.optional(PositiveInt),
+    expiresInSeconds: Schema.optional(PositiveInt),
+  }),
+  Schema.Struct({
+    ...ProviderAuthEventBase,
+    type: Schema.Literal("progress"),
+    message: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    ...ProviderAuthEventBase,
+    type: Schema.Literal("input_required"),
+    promptId: ProviderAuthPromptId,
+    inputType: Schema.Literals(["text", "secret", "select", "manual_code"]),
+    message: TrimmedNonEmptyString,
+    placeholder: Schema.optional(TrimmedNonEmptyString),
+    options: Schema.optional(Schema.Array(ProviderAuthInputOption)),
+  }),
+  Schema.Struct({
+    ...ProviderAuthEventBase,
+    type: Schema.Literal("completed"),
+    status: Schema.Literal("authenticated"),
+    email: Schema.optional(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    ...ProviderAuthEventBase,
+    type: Schema.Literal("error"),
+    code: TrimmedNonEmptyString,
+    message: TrimmedNonEmptyString,
+    retryable: Schema.Boolean,
+  }),
+]);
+export type ProviderAuthOperationEvent = typeof ProviderAuthOperationEvent.Type;
+
+export const ProviderAuthRpcErrorCode = Schema.Literals([
+  "instance_not_found",
+  "connection_not_found",
+  "operation_not_found",
+  "already_running",
+  "unsupported",
+  "invalid_input",
+  "process_failed",
+]);
+export type ProviderAuthRpcErrorCode = typeof ProviderAuthRpcErrorCode.Type;
+
+export class ProviderAuthRpcError extends Schema.TaggedErrorClass<ProviderAuthRpcError>()(
+  "ProviderAuthRpcError",
+  {
+    code: ProviderAuthRpcErrorCode,
+    message: TrimmedNonEmptyString,
+  },
+) {}
 
 export const ServerProviderUpdateInput = Schema.Struct({
   provider: ProviderDriverKind,

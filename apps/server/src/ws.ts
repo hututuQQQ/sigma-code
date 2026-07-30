@@ -80,6 +80,7 @@ import {
 } from "./observability/RpcInstrumentation.ts";
 import * as ProviderRegistry from "./provider/Services/ProviderRegistry.ts";
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
+import * as ProviderAuthOperations from "./provider/Services/ProviderAuthOperations.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -305,6 +306,11 @@ const RPC_REQUIRED_SCOPE = new Map<string, AuthEnvironmentScope>([
   [WS_METHODS.serverProbe, AuthOrchestrationReadScope],
   [WS_METHODS.serverGetConfig, AuthOrchestrationReadScope],
   [WS_METHODS.serverRefreshProviders, AuthOrchestrationOperateScope],
+  [WS_METHODS.providerStartAuth, AuthOrchestrationOperateScope],
+  [WS_METHODS.providerRespondAuth, AuthOrchestrationOperateScope],
+  [WS_METHODS.providerCancelAuth, AuthOrchestrationOperateScope],
+  [WS_METHODS.providerLogoutAuth, AuthOrchestrationOperateScope],
+  [WS_METHODS.subscribeProviderAuth, AuthOrchestrationReadScope],
   [WS_METHODS.serverUpdateProvider, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpdateServer, AuthOrchestrationOperateScope],
   [WS_METHODS.serverUpsertKeybinding, AuthOrchestrationOperateScope],
@@ -429,6 +435,7 @@ const makeWsRpcLayer = (
       const portDiscovery = yield* PortScanner.PortDiscovery;
       const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
       const providerMaintenanceRunner = yield* ProviderMaintenanceRunner.ProviderMaintenanceRunner;
+      const providerAuthOperations = yield* ProviderAuthOperations.ProviderAuthOperations;
       const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
       const config = yield* ServerConfig.ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents.ServerLifecycleEvents;
@@ -1412,6 +1419,37 @@ const makeWsRpcLayer = (
               : providerRegistry.refresh()
             ).pipe(Effect.map((providers) => ({ providers }))),
             { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.providerStartAuth]: (input) =>
+          observeRpcEffect(WS_METHODS.providerStartAuth, providerAuthOperations.start(input), {
+            "rpc.aggregate": "provider-auth",
+          }),
+        [WS_METHODS.providerRespondAuth]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerRespondAuth,
+            providerAuthOperations.respond(input).pipe(Effect.as({})),
+            { "rpc.aggregate": "provider-auth" },
+          ),
+        [WS_METHODS.providerCancelAuth]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerCancelAuth,
+            providerAuthOperations.cancel(input).pipe(Effect.as({})),
+            { "rpc.aggregate": "provider-auth" },
+          ),
+        [WS_METHODS.providerLogoutAuth]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.providerLogoutAuth,
+            providerAuthOperations.logout(input).pipe(
+              Effect.andThen(providerRegistry.refreshInstance(input.instanceId)),
+              Effect.map((providers) => ({ providers })),
+            ),
+            { "rpc.aggregate": "provider-auth" },
+          ),
+        [WS_METHODS.subscribeProviderAuth]: (input) =>
+          observeRpcStream(
+            WS_METHODS.subscribeProviderAuth,
+            providerAuthOperations.subscribe(input.operationId),
+            { "rpc.aggregate": "provider-auth" },
           ),
         [WS_METHODS.serverUpdateProvider]: (input) =>
           observeRpcEffect(

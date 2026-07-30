@@ -23,8 +23,61 @@ describe("ServerProvider", () => {
 
     expect(parsed.slashCommands).toEqual([]);
     expect(parsed.skills).toEqual([]);
+    expect(parsed.authConnections ?? []).toEqual([]);
     expect(parsed.versionAdvisory).toBeUndefined();
     expect(parsed.updateState).toBeUndefined();
+  });
+
+  it("decodes model-scoped subscription authentication metadata", () => {
+    const parsed = decodeServerProvider({
+      instanceId: "sigma",
+      driver: "sigma",
+      enabled: true,
+      installed: true,
+      version: "1.0.0",
+      status: "ready",
+      auth: { status: "unknown" },
+      checkedAt: "2026-07-29T00:00:00.000Z",
+      authConnections: [
+        {
+          id: "openai-codex",
+          label: "ChatGPT subscription",
+          status: "unauthenticated",
+          loginMethods: ["browser", "device-code"],
+          scope: "host",
+          actions: ["login"],
+          experimental: true,
+        },
+      ],
+      models: [
+        {
+          slug: "openai-codex/gpt-5.6-terra",
+          name: "GPT-5.6 Terra",
+          isCustom: false,
+          authConnectionId: "openai-codex",
+          capabilities: null,
+        },
+      ],
+    });
+
+    expect((parsed.authConnections ?? [])[0]?.scope).toBe("host");
+    expect((parsed.authConnections ?? [])[0]?.loginMethods).toEqual([
+      {
+        id: "browser",
+        label: "Login in browser",
+        kind: "oauth",
+        billingMode: "subscription",
+      },
+      {
+        id: "device-code",
+        label: "Use device code",
+        kind: "oauth",
+        billingMode: "subscription",
+      },
+    ]);
+    expect(parsed.models[0]?.authConnectionId).toBe("openai-codex");
+    expect(parsed.models[0]?.billingModes).toBeUndefined();
+    expect(parsed.auth.status).toBe("unknown");
   });
 
   it("defaults one-click update support when decoding older advisory snapshots", () => {

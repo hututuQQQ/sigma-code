@@ -68,6 +68,16 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
+import {
+  allowUnpricedCostsForModelSelection,
+  modelSelectionAllowsUnpricedCosts,
+  providerAuthRequirementKey,
+  providerModelNeedsLogin,
+  resolveProviderModelAuthRequirement,
+  resolveProviderModelUnpricedCostRequirement,
+  type ProviderModelAuthRequirement,
+  type ProviderModelUnpricedCostRequirement,
+} from "../providerAuth";
 import { useDiffPanelStore } from "../diffPanelStore";
 import {
   collapseExpandedComposerCursor,
@@ -116,6 +126,10 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import {
+  ProviderAuthGateDialog,
+  ProviderUnpricedCostGateDialog,
+} from "./provider-auth/ProviderAuthFlow";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import {
   selectActiveRightPanel,
@@ -1950,6 +1964,93 @@ function ChatViewContent(props: ChatViewProps) {
     versionMismatchServerLabel,
   ]);
   const providerStatuses = serverConfig?.providers ?? EMPTY_PROVIDERS;
+  const [pendingProviderAuth, setPendingProviderAuth] =
+    useState<ProviderModelAuthRequirement | null>(null);
+  const pendingProviderAuthResumeRef = useRef<(() => void) | null>(null);
+  const recentlyAuthenticatedProviderKeysRef = useRef<Set<string>>(new Set());
+  const requestProviderModelAuth = useCallback(
+    (selection: ModelSelection, resume: () => void): boolean => {
+      const requirement = resolveProviderModelAuthRequirement(providerStatuses, selection);
+      if (!providerModelNeedsLogin(requirement)) return true;
+      const key = providerAuthRequirementKey(requirement);
+      if (recentlyAuthenticatedProviderKeysRef.current.delete(key)) {
+        return true;
+      }
+      pendingProviderAuthResumeRef.current = resume;
+      setPendingProviderAuth(requirement);
+      return false;
+    },
+    [providerStatuses],
+  );
+  const completePendingProviderAuth = useCallback(() => {
+    if (!pendingProviderAuth) return;
+    recentlyAuthenticatedProviderKeysRef.current.add(
+      providerAuthRequirementKey(pendingProviderAuth),
+    );
+    const resume = pendingProviderAuthResumeRef.current;
+    pendingProviderAuthResumeRef.current = null;
+    setPendingProviderAuth(null);
+    if (resume) queueMicrotask(resume);
+  }, [pendingProviderAuth]);
+  const cancelPendingProviderAuth = useCallback(() => {
+    pendingProviderAuthResumeRef.current = null;
+    setPendingProviderAuth(null);
+  }, []);
+  const [pendingUnpricedCosts, setPendingUnpricedCosts] =
+    useState<ProviderModelUnpricedCostRequirement | null>(null);
+  const pendingUnpricedCostsResumeRef = useRef<(() => void) | null>(null);
+  const acceptedUnpricedTaskKeysRef = useRef<Set<string>>(new Set());
+  const activeThreadAlreadyAllowsUnpricedCosts = activeThread
+    ? modelSelectionAllowsUnpricedCosts(activeThread.modelSelection)
+    : false;
+  const requestUnpricedCostConsent = useCallback(
+    (selection: ModelSelection, resume: () => void): boolean => {
+      const requirement = resolveProviderModelUnpricedCostRequirement(providerStatuses, selection);
+      if (!requirement) return true;
+      if (
+        modelSelectionAllowsUnpricedCosts(selection) ||
+        activeThreadAlreadyAllowsUnpricedCosts ||
+        (activeThreadKey !== null && acceptedUnpricedTaskKeysRef.current.has(activeThreadKey))
+      ) {
+        return true;
+      }
+      pendingUnpricedCostsResumeRef.current = resume;
+      setPendingUnpricedCosts(requirement);
+      return false;
+    },
+    [activeThreadAlreadyAllowsUnpricedCosts, activeThreadKey, providerStatuses],
+  );
+  const completePendingUnpricedCosts = useCallback(() => {
+    if (!pendingUnpricedCosts) return;
+    if (activeThreadKey !== null) {
+      acceptedUnpricedTaskKeysRef.current.add(activeThreadKey);
+    }
+    const resume = pendingUnpricedCostsResumeRef.current;
+    pendingUnpricedCostsResumeRef.current = null;
+    setPendingUnpricedCosts(null);
+    if (resume) queueMicrotask(resume);
+  }, [activeThreadKey, pendingUnpricedCosts]);
+  const cancelPendingUnpricedCosts = useCallback(() => {
+    pendingUnpricedCostsResumeRef.current = null;
+    setPendingUnpricedCosts(null);
+  }, []);
+  const selectionWithTaskCostConsent = useCallback(
+    (selection: ModelSelection): ModelSelection => {
+      if (
+        modelSelectionAllowsUnpricedCosts(selection) ||
+        activeThreadAlreadyAllowsUnpricedCosts ||
+        (activeThreadKey !== null && acceptedUnpricedTaskKeysRef.current.has(activeThreadKey))
+      ) {
+        return allowUnpricedCostsForModelSelection(selection);
+      }
+      return selection;
+    },
+    [activeThreadAlreadyAllowsUnpricedCosts, activeThreadKey],
+  );
+  const canStartProviderAuth =
+    isElectron &&
+    activeEnvironment?.entry.target._tag === "PrimaryConnectionTarget" &&
+    activeEnvironment.serverConfig?.environment.platform.os === "windows";
   const unlockedSelectedProvider = resolveSelectableProvider(
     providerStatuses,
     selectedProviderByThreadId ?? threadProvider,
@@ -4465,7 +4566,7 @@ function ChatViewContent(props: ChatViewProps) {
     ],
   );
 
-  const onSend = async (e?: { preventDefault: () => void }) => {
+  async function onSend(e?: { preventDefault: () => void }) {
     e?.preventDefault();
     if (
       !activeThread ||
@@ -4491,8 +4592,23 @@ function ChatViewContent(props: ChatViewProps) {
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
       selectedPromptEffort: ctxSelectedPromptEffort,
-      selectedModelSelection: ctxSelectedModelSelection,
+      selectedModelSelection: rawSelectedModelSelection,
     } = sendCtx;
+    if (
+      !requestProviderModelAuth(rawSelectedModelSelection, () => {
+        void onSend();
+      })
+    ) {
+      return;
+    }
+    if (
+      !requestUnpricedCostConsent(rawSelectedModelSelection, () => {
+        void onSend();
+      })
+    ) {
+      return;
+    }
+    const ctxSelectedModelSelection = selectionWithTaskCostConsent(rawSelectedModelSelection);
     const promptForSend = promptRef.current;
     const {
       trimmedPrompt: trimmed,
@@ -4856,7 +4972,7 @@ function ChatViewContent(props: ChatViewProps) {
       );
       resetLocalDispatch();
     }
-  };
+  }
 
   const onInterrupt = async () => {
     if (!activeThread) return;
@@ -5067,8 +5183,9 @@ function ChatViewContent(props: ChatViewProps) {
         selectedModel: ctxSelectedModel,
         selectedProviderModels: ctxSelectedProviderModels,
         selectedPromptEffort: ctxSelectedPromptEffort,
-        selectedModelSelection: ctxSelectedModelSelection,
+        selectedModelSelection: rawSelectedModelSelection,
       } = sendCtx;
+      const ctxSelectedModelSelection = selectionWithTaskCostConsent(rawSelectedModelSelection);
 
       const threadIdForSend = activeThread.id;
       const messageIdForSend = newMessageId();
@@ -5204,10 +5321,11 @@ function ChatViewContent(props: ChatViewProps) {
       autoOpenPlanSidebar,
       environmentId,
       composerRef,
+      selectionWithTaskCostConsent,
     ],
   );
 
-  const onImplementPlanInNewThread = useCallback(async () => {
+  const onImplementPlanInNewThread: () => Promise<void> = useCallback(async () => {
     if (
       !activeThread ||
       !activeProject ||
@@ -5230,8 +5348,23 @@ function ChatViewContent(props: ChatViewProps) {
       selectedModel: ctxSelectedModel,
       selectedProviderModels: ctxSelectedProviderModels,
       selectedPromptEffort: ctxSelectedPromptEffort,
-      selectedModelSelection: ctxSelectedModelSelection,
+      selectedModelSelection: rawSelectedModelSelection,
     } = sendCtx;
+    if (
+      !requestProviderModelAuth(rawSelectedModelSelection, () => {
+        void onImplementPlanInNewThread();
+      })
+    ) {
+      return;
+    }
+    if (
+      !requestUnpricedCostConsent(rawSelectedModelSelection, () => {
+        void onImplementPlanInNewThread();
+      })
+    ) {
+      return;
+    }
+    const ctxSelectedModelSelection = selectionWithTaskCostConsent(rawSelectedModelSelection);
 
     const createdAt = new Date().toISOString();
     const nextThreadId = newThreadId();
@@ -5359,12 +5492,15 @@ function ChatViewContent(props: ChatViewProps) {
     isSendBusy,
     isServerThread,
     navigate,
+    requestProviderModelAuth,
+    requestUnpricedCostConsent,
     resetLocalDispatch,
     runtimeMode,
     startThreadTurn,
     autoOpenPlanSidebar,
     environmentId,
     composerRef,
+    selectionWithTaskCostConsent,
   ]);
 
   const getModelDisabledReason = useCallback(
@@ -5945,6 +6081,23 @@ function ChatViewContent(props: ChatViewProps) {
                 threadRef={activeThreadRef}
                 tabId={activePreviewMiniPlayer.tabId}
                 bottomInset={isDraftHeroState ? 0 : composerOverlayHeight}
+              />
+            ) : null}
+
+            {pendingProviderAuth ? (
+              <ProviderAuthGateDialog
+                requirement={pendingProviderAuth}
+                environmentId={environmentId}
+                canStartLogin={canStartProviderAuth}
+                onAuthenticated={completePendingProviderAuth}
+                onCancel={cancelPendingProviderAuth}
+              />
+            ) : null}
+            {pendingUnpricedCosts ? (
+              <ProviderUnpricedCostGateDialog
+                requirement={pendingUnpricedCosts}
+                onConfirm={completePendingUnpricedCosts}
+                onCancel={cancelPendingUnpricedCosts}
               />
             ) : null}
 

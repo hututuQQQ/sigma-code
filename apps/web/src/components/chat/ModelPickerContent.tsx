@@ -28,12 +28,15 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { isDefaultModelPickerItemVisible } from "./modelPickerCatalog";
 
 type ModelPickerItem = {
   slug: string;
   name: string;
   shortName?: string;
   subProvider?: string;
+  authConnectionId?: string;
+  isRecommended?: boolean;
   instanceId: ProviderInstanceId;
   driverKind: ProviderDriverKind;
   instanceDisplayName: string;
@@ -169,6 +172,20 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     () => new Map(instanceEntries.map((entry) => [entry.instanceId, entry])),
     [instanceEntries],
   );
+  const authenticatedConnectionIdsByInstance = useMemo(
+    () =>
+      new Map(
+        instanceEntries.map((entry) => [
+          entry.instanceId,
+          new Set(
+            (entry.snapshot.authConnections ?? [])
+              .filter((connection) => connection.status === "authenticated")
+              .map((connection) => connection.id),
+          ),
+        ]),
+      ),
+    [instanceEntries],
+  );
   const matchesLockedProvider = useCallback(
     (entry: Pick<ProviderInstanceEntry, "driverKind" | "continuationGroupKey">): boolean => {
       if (props.lockedProvider === null) return true;
@@ -211,6 +228,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           name: model.name,
           ...(model.shortName ? { shortName: model.shortName } : {}),
           ...(model.subProvider ? { subProvider: model.subProvider } : {}),
+          ...(model.authConnectionId ? { authConnectionId: model.authConnectionId } : {}),
+          ...(model.isRecommended ? { isRecommended: true } : {}),
           instanceId,
           driverKind: entry.driverKind,
           instanceDisplayName: entry.displayName,
@@ -338,6 +357,19 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         .map((rankedModel) => rankedModel.model);
     }
 
+    result = result.filter((model) => {
+      const modelKey = providerModelKey(model.instanceId, model.slug);
+      return isDefaultModelPickerItemVisible({
+        model,
+        activeInstanceId: props.activeInstanceId,
+        activeModel: props.model,
+        favoriteModelKeys: favoritesSet,
+        authenticatedConnectionIds:
+          authenticatedConnectionIdsByInstance.get(model.instanceId) ?? new Set(),
+        modelKey,
+      });
+    });
+
     if (props.lockedProvider !== null) {
       result = result.filter((m) => matchesLockedProvider(m));
       if (selectedInstanceId === "favorites") {
@@ -358,10 +390,13 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     });
   }, [
     favoritesSet,
+    authenticatedConnectionIdsByInstance,
     flatModels,
     instanceOrder,
     matchesLockedProvider,
     props.lockedProvider,
+    props.activeInstanceId,
+    props.model,
     searchQuery,
     selectedInstanceId,
   ]);
