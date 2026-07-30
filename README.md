@@ -38,11 +38,19 @@ subscription allowance and do not require `OPENAI_API_KEY`. Authentication,
 allowance, and network failures are shown directly and never trigger a silent
 fallback to another paid provider.
 
+Sigma Runtime's model layer is backed by the pinned Pi directory. Settings
+shows one searchable model connection per underlying provider, with API-key
+and OAuth methods supplied by the trusted Runtime. The full 1,100+ model
+catalog remains searchable without rendering every model in the default
+picker. Models with unverified pricing require explicit confirmation for the
+current task and are shown as “Price unknown”, never as `$0`.
+
 Sigma Code also retains the upstream providers. Install and authenticate any
 separate provider you intend to use:
 
-- Sigma Runtime + ChatGPT subscription: desktop artifacts include a verified
-  Sigma Runtime; login is managed from Sigma Code
+- Sigma Runtime + Pi model connections: desktop artifacts include a verified
+  Sigma Runtime; ChatGPT, API-key, and supported OAuth logins are managed from
+  Sigma Code
 - Codex CLI（独立 Agent）: install Codex CLI and run `codex login`
 - Claude: install Claude Code and run `claude auth login`
 - Cursor: install Cursor CLI and run `cursor-agent login`

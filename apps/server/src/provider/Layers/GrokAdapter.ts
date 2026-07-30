@@ -691,6 +691,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             ...(options?.environment ? { environment: options.environment } : {}),
             childProcessSpawner,
             cwd,
+            ...(grokModelSelection ? { modelSelection: grokModelSelection } : {}),
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: profile?.clientName ?? "sigma-code", version: "0.0.0" },
             ...(mcpSession

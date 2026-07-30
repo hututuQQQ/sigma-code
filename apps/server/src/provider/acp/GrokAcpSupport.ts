@@ -1,4 +1,4 @@
-import { type GrokSettings, ProviderDriverKind } from "@t3tools/contracts";
+import { type GrokSettings, type ModelSelection, ProviderDriverKind } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -27,6 +27,8 @@ interface GrokAcpRuntimeInput extends Omit<
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly grokSettings: GrokAcpRuntimeGrokSettings | null | undefined;
   readonly environment?: NodeJS.ProcessEnv;
+  /** Optional downstream profile selection; the Grok runtime does not consume it. */
+  readonly modelSelection?: ModelSelection;
 }
 
 export function buildGrokAcpSpawnInput(

@@ -1555,7 +1555,8 @@ export function ProviderSettingsPanel() {
               canStartProviderAuth={
                 typeof window !== "undefined" &&
                 Boolean(window.desktopBridge) &&
-                primaryEnvironment?.entry.target._tag === "PrimaryConnectionTarget"
+                primaryEnvironment?.entry.target._tag === "PrimaryConnectionTarget" &&
+                primaryEnvironment.serverConfig?.environment.platform.os === "windows"
               }
               instanceId={row.instanceId}
               instance={row.instance}

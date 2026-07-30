@@ -7,6 +7,7 @@ import {
   DownloadIcon,
   LoaderIcon,
   PlusIcon,
+  SearchIcon,
   Trash2Icon,
   XIcon,
 } from "lucide-react";
@@ -32,6 +33,7 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { DraftInput } from "../ui/draft-input";
+import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { ScrollArea } from "../ui/scroll-area";
 import { Switch } from "../ui/switch";
@@ -457,6 +459,30 @@ export function ProviderInstanceCard({
     liveModels: liveProvider?.models,
     customModels,
   });
+  const [authConnectionQuery, setAuthConnectionQuery] = useState("");
+  const recommendedConnectionIds = new Set(
+    (liveProvider?.models ?? []).flatMap((model) =>
+      model.isRecommended && model.authConnectionId ? [model.authConnectionId] : [],
+    ),
+  );
+  const visibleAuthConnections = (liveProvider?.authConnections ?? [])
+    .filter((connection) => {
+      const query = authConnectionQuery.trim().toLocaleLowerCase();
+      return (
+        query.length === 0 ||
+        connection.label.toLocaleLowerCase().includes(query) ||
+        connection.id.toLocaleLowerCase().includes(query)
+      );
+    })
+    .toSorted((left, right) => {
+      const rank = (connection: typeof left): number => {
+        if (connection.status === "authenticated") return 0;
+        if (connection.id === "openai-codex") return 1;
+        if (recommendedConnectionIds.has(connection.id)) return 2;
+        return 3;
+      };
+      return rank(left) - rank(right) || left.label.localeCompare(right.label);
+    });
 
   const updateDisplayName = (value: string) => {
     const trimmed = value.trim();
@@ -735,7 +761,22 @@ export function ProviderInstanceCard({
 
       {environmentId && (liveProvider?.authConnections?.length ?? 0) > 0 ? (
         <div className="space-y-2 px-3 pb-3 sm:px-4">
-          {liveProvider?.authConnections?.map((connection) => (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-medium text-foreground">Model connections</p>
+            {(liveProvider?.authConnections?.length ?? 0) > 6 ? (
+              <div className="relative w-full max-w-56">
+                <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={authConnectionQuery}
+                  onChange={(event) => setAuthConnectionQuery(event.target.value)}
+                  placeholder="Search connections"
+                  aria-label="Search model connections"
+                  className="h-7 pl-7 text-xs"
+                />
+              </div>
+            ) : null}
+          </div>
+          {visibleAuthConnections.map((connection) => (
             <ProviderAuthConnectionControls
               key={connection.id}
               environmentId={environmentId}
@@ -744,6 +785,11 @@ export function ProviderInstanceCard({
               canStartLogin={canStartProviderAuth}
             />
           ))}
+          {visibleAuthConnections.length === 0 ? (
+            <p className="py-2 text-center text-xs text-muted-foreground">
+              No model connections match this search.
+            </p>
+          ) : null}
         </div>
       ) : null}
 

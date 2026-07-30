@@ -1,4 +1,4 @@
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, type ProviderBillingMode } from "@t3tools/contracts";
 import { ClaudeAI, CursorIcon, GrokIcon, Icon, OpenAI, OpenCodeIcon, SigmaIcon } from "../Icons";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 
@@ -27,6 +27,10 @@ export type ModelEsque = {
   name: string;
   shortName?: string | undefined;
   subProvider?: string | undefined;
+  authConnectionId?: string | undefined;
+  billingModes?: ReadonlyArray<ProviderBillingMode> | undefined;
+  activeBillingMode?: ProviderBillingMode | undefined;
+  isRecommended?: boolean | undefined;
 };
 
 function escapeRegExp(value: string): string {

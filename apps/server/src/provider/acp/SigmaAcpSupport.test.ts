@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
@@ -65,6 +66,17 @@ describe("SigmaAcpSupport", () => {
       args: ["acp"],
       cwd: "/tmp/repo",
       env: { PATH: "/opt/bin" },
+    });
+    expect(
+      buildSigmaAcpSpawnInput(undefined, "/tmp/repo", undefined, {
+        instanceId: ProviderInstanceId.make("sigma"),
+        model: "example/unknown-price",
+        options: [{ id: "allowUnpricedCosts", value: true }],
+      }),
+    ).toEqual({
+      command: "sigma",
+      args: ["acp", "--allow-unpriced-costs"],
+      cwd: "/tmp/repo",
     });
   });
 

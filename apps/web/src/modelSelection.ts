@@ -76,6 +76,10 @@ export interface AppModelOption {
   subProvider?: string;
   isCustom: boolean;
   isDefault?: boolean;
+  authConnectionId?: string;
+  billingModes?: ServerProvider["models"][number]["billingModes"];
+  activeBillingMode?: ServerProvider["models"][number]["activeBillingMode"];
+  isRecommended?: boolean;
 }
 
 function toAppModelOption(model: ServerProvider["models"][number]): AppModelOption {
@@ -87,6 +91,10 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
   if (model.shortName) option.shortName = model.shortName;
   if (model.subProvider) option.subProvider = model.subProvider;
   if (model.isDefault) option.isDefault = true;
+  if (model.authConnectionId) option.authConnectionId = model.authConnectionId;
+  if (model.billingModes) option.billingModes = model.billingModes;
+  if (model.activeBillingMode) option.activeBillingMode = model.activeBillingMode;
+  if (model.isRecommended) option.isRecommended = true;
   return option;
 }
 

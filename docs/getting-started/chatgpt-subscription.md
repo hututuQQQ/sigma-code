@@ -34,6 +34,21 @@ usage rather than `$0 API cost`.
 - Authentication expiry, exhausted allowance, rate limits, and network/server
   failures are surfaced without falling back to DeepSeek, GLM, or another API.
 
+## Other Pi model connections
+
+Open **Settings → Sigma → Model connections** to search the provider directory.
+Each connection advertises its own supported API-key and/or OAuth methods.
+Credentials are saved by Sigma Runtime in `~/.sigma/auth.json`; environment
+credentials are reported as ambient and remain configured after local logout.
+Authentication URLs stay in desktop memory only and are opened with the system
+browser.
+
+The full Pi model directory is available through model search. The default
+picker stays compact by showing recommended, configured, favorite, and current
+models. If a selected model has unverified pricing, Sigma Code asks for
+task-scoped consent before sending. The UI labels this as **Price unknown**,
+not as zero API cost.
+
 ## Experimental provider boundary
 
 The adapter uses the community Pi implementation of ChatGPT OAuth and the

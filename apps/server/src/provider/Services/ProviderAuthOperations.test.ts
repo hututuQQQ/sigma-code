@@ -31,6 +31,31 @@ function fakeInstance(auth: ProviderAuthCapability): ProviderInstance {
     auth,
     snapshot: {
       refresh: Effect.succeed({}),
+      getSnapshot: Effect.succeed({
+        authConnections: [
+          {
+            id: "openai-codex",
+            label: "OpenAI Codex",
+            status: "unauthenticated",
+            loginMethods: [
+              {
+                id: "browser",
+                label: "Login with ChatGPT",
+                kind: "oauth",
+                billingMode: "subscription",
+              },
+              {
+                id: "device-code",
+                label: "Use device code",
+                kind: "oauth",
+                billingMode: "subscription",
+              },
+            ],
+            scope: "host",
+            actions: ["login"],
+          },
+        ],
+      }),
     },
   } as unknown as ProviderInstance;
 }

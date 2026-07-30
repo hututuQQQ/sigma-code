@@ -31,6 +31,45 @@ import { SigmaDriver } from "./SigmaDriver.ts";
 const decodeSigmaSettings = Schema.decodeSync(SigmaSettings);
 const __dirname = NodePath.dirname(NodeURL.fileURLToPath(import.meta.url));
 const mockAgentPath = NodePath.join(__dirname, "../../../scripts/acp-mock-agent.ts");
+const mockAuthConnection = {
+  id: "openai-codex",
+  name: "OpenAI Codex",
+  dynamic: false,
+  authMethods: [
+    {
+      id: "browser",
+      label: "Login with ChatGPT",
+      kind: "oauth",
+      billingMode: "subscription",
+    },
+  ],
+  status: "unauthenticated",
+} as const;
+const mockAuthList = JSON.stringify({
+  schemaVersion: 1,
+  connections: [mockAuthConnection],
+});
+const mockModelsList = JSON.stringify({
+  schemaVersion: 1,
+  piVersion: "0.82.1",
+  providers: [mockAuthConnection],
+  models: [
+    {
+      provider: "openai-codex",
+      id: "gpt-5.6-terra",
+      slug: "openai-codex/gpt-5.6-terra",
+      name: "GPT-5.6 Terra",
+      api: "openai-codex-responses",
+      contextWindowTokens: 400_000,
+      maxOutputTokens: 128_000,
+      reasoning: true,
+      imageInput: false,
+      billingModes: ["subscription"],
+      activeBillingMode: null,
+      isRecommended: true,
+    },
+  ],
+});
 
 async function makeMockSigmaBinary(
   requestLogPath: string,
@@ -50,6 +89,14 @@ async function makeMockSigmaBinary(
       ")",
       'if "%~1"=="auth" if "%~2"=="status" (',
       '  echo {"provider":"openai-codex","status":"unauthenticated"}',
+      "  exit /b 0",
+      ")",
+      'if "%~1"=="auth" if "%~2"=="list" (',
+      `  echo ${mockAuthList}`,
+      "  exit /b 0",
+      ")",
+      'if "%~1"=="models" if "%~2"=="list" (',
+      `  echo ${mockModelsList}`,
       "  exit /b 0",
       ")",
       `set "T3_ACP_REQUEST_LOG_PATH=${requestLogPath}"`,
@@ -73,6 +120,14 @@ async function makeMockSigmaBinary(
     "fi",
     'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
     '  echo \'{"provider":"openai-codex","status":"unauthenticated"}\'',
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "auth" ] && [ "$2" = "list" ]; then',
+    `  echo '${mockAuthList}'`,
+    "  exit 0",
+    "fi",
+    'if [ "$1" = "models" ] && [ "$2" = "list" ]; then',
+    `  echo '${mockModelsList}'`,
     "  exit 0",
     "fi",
     `export T3_ACP_REQUEST_LOG_PATH=${JSON.stringify(requestLogPath)}`,

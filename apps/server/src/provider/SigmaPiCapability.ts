@@ -1,8 +1,10 @@
 import {
   ProviderAuthRpcError,
   type ServerProviderAuthConnection,
+  type ServerProviderModel,
   type SigmaSettings,
 } from "@t3tools/contracts";
+import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -16,18 +18,69 @@ import { resolveSigmaBinaryPath } from "./acp/SigmaAcpSupport.ts";
 
 export const SIGMA_CODEX_AUTH_CONNECTION_ID = "openai-codex";
 
-const AuthStatusOutput = Schema.Struct({
-  provider: Schema.Literal(SIGMA_CODEX_AUTH_CONNECTION_ID),
+const BillingMode = Schema.Literals(["metered", "subscription", "unpriced"]);
+const AuthKind = Schema.Literals(["api_key", "oauth"]);
+const CliAuthMethod = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  kind: AuthKind,
+  billingMode: BillingMode,
+});
+const CliAuthConnection = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  dynamic: Schema.Boolean,
+  authMethods: Schema.Array(CliAuthMethod),
   status: Schema.Literals(["authenticated", "unauthenticated"]),
+  authType: Schema.optional(AuthKind),
+  source: Schema.optional(Schema.String),
   email: Schema.optional(Schema.String),
 });
-const decodeAuthStatusOutput = Schema.decodeUnknownOption(Schema.fromJsonString(AuthStatusOutput));
+const CliAuthListOutput = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  connections: Schema.Array(CliAuthConnection),
+});
+const decodeAuthListOutput = Schema.decodeUnknownOption(Schema.fromJsonString(CliAuthListOutput));
+
+const CliAuthStatusOutput = Schema.Struct({
+  provider: Schema.String,
+  status: Schema.Literals(["authenticated", "unauthenticated"]),
+  authType: Schema.optional(AuthKind),
+  source: Schema.optional(Schema.String),
+  email: Schema.optional(Schema.String),
+});
+const decodeAuthStatusOutput = Schema.decodeUnknownOption(
+  Schema.fromJsonString(CliAuthStatusOutput),
+);
+
+const CliModel = Schema.Struct({
+  provider: Schema.String,
+  id: Schema.String,
+  slug: Schema.String,
+  name: Schema.String,
+  api: Schema.String,
+  contextWindowTokens: Schema.Number,
+  maxOutputTokens: Schema.Number,
+  reasoning: Schema.Boolean,
+  imageInput: Schema.Boolean,
+  billingModes: Schema.Array(BillingMode),
+  activeBillingMode: Schema.NullOr(BillingMode),
+  isRecommended: Schema.Boolean,
+});
+const CliModelsListOutput = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  piVersion: Schema.String,
+  providers: Schema.Array(CliAuthConnection),
+  models: Schema.Array(CliModel),
+});
+const decodeModelsListOutput = Schema.decodeUnknownOption(
+  Schema.fromJsonString(CliModelsListOutput),
+);
 
 const CliInputOption = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
 });
-
 const CliAuthEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("auth_url"),
@@ -68,6 +121,18 @@ const CliAuthEvent = Schema.Union([
 const decodeCliAuthEvent = Schema.decodeUnknownOption(Schema.fromJsonString(CliAuthEvent));
 const encodeCliInput = Schema.encodeSync(Schema.UnknownFromJsonString);
 
+const EMPTY_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
+const UNPRICED_CAPABILITIES = createModelCapabilities({
+  optionDescriptors: [
+    {
+      id: "allowUnpricedCosts",
+      label: "Allow unknown monetary cost for this task",
+      description: "Required before Sigma can send this task to a model whose price is unknown.",
+      type: "boolean",
+    },
+  ],
+});
+
 function safeText(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed.slice(0, 2_000) : undefined;
@@ -94,11 +159,7 @@ function normalizeCliEvent(
       const url = safeExternalAuthUrl(event.url);
       const instructions = safeText(event.instructions);
       if (!url) return undefined;
-      return {
-        type: "auth_url",
-        url,
-        ...(instructions ? { instructions } : {}),
-      };
+      return { type: "auth_url", url, ...(instructions ? { instructions } : {}) };
     }
     case "device_code": {
       const userCode = safeText(event.userCode);
@@ -157,7 +218,7 @@ function normalizeCliEvent(
         code,
         message:
           code === "auth_required"
-            ? "ChatGPT returned to Sigma, but the login could not be finalized. Check the Runtime proxy or network settings and start a new login."
+            ? "The provider returned to Sigma, but authentication could not be finalized. Start a new login."
             : (safeText(event.message) ?? "Authentication failed."),
         retryable: event.retryable,
       };
@@ -170,27 +231,76 @@ function parseCliLine(line: string): ProviderAuthCapabilityEvent | undefined {
   return Option.isSome(decoded) ? normalizeCliEvent(decoded.value) : undefined;
 }
 
-function connectionFromStatus(
-  status: "authenticated" | "unauthenticated" | "unknown",
-  email?: string,
+function connectionFromCli(
+  connection: typeof CliAuthConnection.Type,
 ): ServerProviderAuthConnection {
+  const id = safeText(connection.id) ?? connection.id;
+  const label = safeText(connection.name) ?? id;
+  const email = safeText(connection.email);
+  const source = safeText(connection.source);
+  const loginMethods = connection.authMethods.flatMap((method) => {
+    const methodId = safeText(method.id);
+    const methodLabel = safeText(method.label);
+    return methodId && methodLabel
+      ? [
+          {
+            id: methodId,
+            label: methodLabel,
+            kind: method.kind,
+            billingMode: method.billingMode,
+          },
+        ]
+      : [];
+  });
   return {
-    id: SIGMA_CODEX_AUTH_CONNECTION_ID,
-    label: "ChatGPT Subscription",
-    status,
-    ...(safeText(email) ? { email: safeText(email) } : {}),
-    loginMethods: ["browser", "device-code"],
+    id,
+    label,
+    status: connection.status,
+    ...(email ? { email } : {}),
+    ...(connection.authType ? { authType: connection.authType } : {}),
+    ...(source ? { source } : {}),
+    loginMethods,
     scope: "host",
-    actions: status === "authenticated" ? ["logout"] : ["login"],
-    experimental: true,
+    actions:
+      connection.status === "authenticated"
+        ? loginMethods.length > 0
+          ? ["login", "logout"]
+          : ["logout"]
+        : loginMethods.length > 0
+          ? ["login"]
+          : [],
+    ...(id === SIGMA_CODEX_AUTH_CONNECTION_ID ? { experimental: true } : {}),
   };
 }
 
-export function makePendingSigmaCodexAuthConnection(): ServerProviderAuthConnection {
-  return connectionFromStatus("unknown");
+export function makePendingSigmaAuthConnections(): ReadonlyArray<ServerProviderAuthConnection> {
+  return [
+    {
+      id: SIGMA_CODEX_AUTH_CONNECTION_ID,
+      label: "OpenAI Codex",
+      status: "unknown",
+      loginMethods: [
+        {
+          id: "browser",
+          label: "Login with ChatGPT",
+          kind: "oauth",
+          billingMode: "subscription",
+        },
+        {
+          id: "device-code",
+          label: "Use device code",
+          kind: "oauth",
+          billingMode: "subscription",
+        },
+      ],
+      scope: "host",
+      actions: ["login"],
+      experimental: true,
+    },
+  ];
 }
 
-const runCollected = Effect.fn("SigmaAuthCapability.runCollected")(function* (
+const runCollected = Effect.fn("SigmaPiCapability.runCollected")(function* (
   settings: Pick<SigmaSettings, "binaryPath">,
   environment: NodeJS.ProcessEnv,
   args: ReadonlyArray<string>,
@@ -217,16 +327,52 @@ const runCollected = Effect.fn("SigmaAuthCapability.runCollected")(function* (
   return { stdout, exitCode };
 });
 
-export const readSigmaCodexAuthConnection = Effect.fn(
-  "SigmaAuthCapability.readSigmaCodexAuthConnection",
+export const readSigmaAuthConnections = Effect.fn("SigmaPiCapability.readSigmaAuthConnections")(
+  function* (
+    settings: Pick<SigmaSettings, "binaryPath">,
+    environment: NodeJS.ProcessEnv,
+  ): Effect.fn.Return<
+    ReadonlyArray<ServerProviderAuthConnection>,
+    never,
+    ChildProcessSpawner.ChildProcessSpawner
+  > {
+    const result = yield* runCollected(settings, environment, ["auth", "list", "--json"]).pipe(
+      Effect.scoped,
+      Effect.timeoutOption(4_000),
+      Effect.result,
+    );
+    if (
+      result._tag === "Failure" ||
+      Option.isNone(result.success) ||
+      result.success.value.exitCode !== 0
+    ) {
+      return makePendingSigmaAuthConnections();
+    }
+    const decoded = decodeAuthListOutput(result.success.value.stdout);
+    return Option.isSome(decoded)
+      ? decoded.value.connections.map(connectionFromCli)
+      : makePendingSigmaAuthConnections();
+  },
+);
+
+export const readSigmaProviderAuthConnection = Effect.fn(
+  "SigmaPiCapability.readSigmaProviderAuthConnection",
 )(function* (
   settings: Pick<SigmaSettings, "binaryPath">,
   environment: NodeJS.ProcessEnv,
-): Effect.fn.Return<ServerProviderAuthConnection, never, ChildProcessSpawner.ChildProcessSpawner> {
+  providerId: string,
+): Effect.fn.Return<
+  ServerProviderAuthConnection | undefined,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner
+> {
+  const directory = yield* readSigmaAuthConnections(settings, environment);
+  const descriptor = directory.find((connection) => connection.id === providerId);
+  if (!descriptor) return undefined;
   const result = yield* runCollected(settings, environment, [
     "auth",
     "status",
-    SIGMA_CODEX_AUTH_CONNECTION_ID,
+    providerId,
     "--json",
   ]).pipe(Effect.scoped, Effect.timeoutOption(4_000), Effect.result);
   if (
@@ -234,13 +380,63 @@ export const readSigmaCodexAuthConnection = Effect.fn(
     Option.isNone(result.success) ||
     result.success.value.exitCode !== 0
   ) {
-    return connectionFromStatus("unknown");
+    return undefined;
   }
   const decoded = decodeAuthStatusOutput(result.success.value.stdout);
-  return Option.isSome(decoded)
-    ? connectionFromStatus(decoded.value.status, decoded.value.email)
-    : connectionFromStatus("unknown");
+  if (Option.isNone(decoded) || decoded.value.provider !== providerId) return undefined;
+  return {
+    ...descriptor,
+    status: decoded.value.status,
+    ...(safeText(decoded.value.email) ? { email: safeText(decoded.value.email) } : {}),
+    ...(decoded.value.authType ? { authType: decoded.value.authType } : {}),
+    ...(safeText(decoded.value.source) ? { source: safeText(decoded.value.source) } : {}),
+  };
 });
+
+export const readSigmaModelCatalog = Effect.fn("SigmaPiCapability.readSigmaModelCatalog")(
+  function* (
+    settings: Pick<SigmaSettings, "binaryPath">,
+    environment: NodeJS.ProcessEnv,
+  ): Effect.fn.Return<
+    ReadonlyArray<ServerProviderModel>,
+    never,
+    ChildProcessSpawner.ChildProcessSpawner
+  > {
+    const result = yield* runCollected(settings, environment, ["models", "list", "--json"]).pipe(
+      Effect.scoped,
+      Effect.timeoutOption(8_000),
+      Effect.result,
+    );
+    if (
+      result._tag === "Failure" ||
+      Option.isNone(result.success) ||
+      result.success.value.exitCode !== 0
+    ) {
+      return [];
+    }
+    const decoded = decodeModelsListOutput(result.success.value.stdout);
+    if (Option.isNone(decoded)) return [];
+    return decoded.value.models.map((model): ServerProviderModel => {
+      const requiresUnpricedConfirmation =
+        model.activeBillingMode === "unpriced" ||
+        (model.activeBillingMode === null &&
+          model.billingModes.length === 1 &&
+          model.billingModes[0] === "unpriced");
+      return {
+        slug: model.slug,
+        name: model.name,
+        subProvider: model.provider,
+        isCustom: false,
+        ...(model.slug === "openai-codex/gpt-5.6-terra" ? { isDefault: true } : {}),
+        authConnectionId: model.provider,
+        billingModes: model.billingModes,
+        ...(model.activeBillingMode ? { activeBillingMode: model.activeBillingMode } : {}),
+        ...(model.isRecommended ? { isRecommended: true } : {}),
+        capabilities: requiresUnpricedConfirmation ? UNPRICED_CAPABILITIES : EMPTY_CAPABILITIES,
+      };
+    });
+  },
+);
 
 function unsupportedConnection(): ProviderAuthRpcError {
   return new ProviderAuthRpcError({
@@ -249,21 +445,40 @@ function unsupportedConnection(): ProviderAuthRpcError {
   });
 }
 
-export function makeSigmaAuthCapability(input: {
+function safeConnectionId(connectionId: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,127}$/u.test(connectionId);
+}
+
+function findLoginMethod(
+  connections: ReadonlyArray<ServerProviderAuthConnection>,
+  connectionId: string,
+  methodId: string,
+) {
+  return connections
+    .find((connection) => connection.id === connectionId)
+    ?.loginMethods.find((method) => method.id === methodId);
+}
+
+export function makeSigmaPiAuthCapability(input: {
   readonly settings: Pick<SigmaSettings, "binaryPath">;
   readonly environment: NodeJS.ProcessEnv;
   readonly spawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
 }): ProviderAuthCapability {
+  const directory = readSigmaAuthConnections(input.settings, input.environment).pipe(
+    Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, input.spawner),
+  );
+
   const runLogin: ProviderAuthCapability["login"] = (operation) =>
     Effect.gen(function* () {
-      if (operation.connectionId !== SIGMA_CODEX_AUTH_CONNECTION_ID) {
+      const connections = yield* directory;
+      if (!findLoginMethod(connections, operation.connectionId, operation.loginMethod)) {
         return yield* unsupportedConnection();
       }
       const binaryPath = resolveSigmaBinaryPath(input.settings, input.environment);
       const args = [
         "auth",
         "login",
-        SIGMA_CODEX_AUTH_CONNECTION_ID,
+        operation.connectionId,
         "--method",
         operation.loginMethod,
         "--json",
@@ -330,22 +545,18 @@ export function makeSigmaAuthCapability(input: {
         ],
         { concurrency: "unbounded" },
       );
-      if (exitCode !== 0) {
-        return;
-      }
-      if (!completedEvent) {
-        return;
-      }
-      const verifiedConnection = yield* readSigmaCodexAuthConnection(
+      if (exitCode !== 0 || !completedEvent) return;
+      const verifiedConnection = yield* readSigmaProviderAuthConnection(
         input.settings,
         input.environment,
+        operation.connectionId,
       ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, input.spawner));
-      if (verifiedConnection.status !== "authenticated") {
+      if (verifiedConnection?.status !== "authenticated") {
         yield* operation.emit({
           type: "error",
           code: "credential_not_persisted",
           message:
-            "ChatGPT returned to Sigma, but the credentials were not saved. Check the Runtime proxy or network settings and start a new login.",
+            "The provider login completed, but Sigma could not verify the saved credential. Start a new login.",
           retryable: true,
         });
         return;
@@ -359,20 +570,21 @@ export function makeSigmaAuthCapability(input: {
         () =>
           new ProviderAuthRpcError({
             code: "process_failed",
-            message: "Sigma could not run the ChatGPT authentication command.",
+            message: "Sigma could not run the provider authentication command.",
           }),
       ),
     );
 
   const logout: ProviderAuthCapability["logout"] = (connectionId) =>
     Effect.gen(function* () {
-      if (connectionId !== SIGMA_CODEX_AUTH_CONNECTION_ID) {
+      const connections = yield* directory;
+      if (!connections.some((connection) => connection.id === connectionId)) {
         return yield* unsupportedConnection();
       }
       const result = yield* runCollected(input.settings, input.environment, [
         "auth",
         "logout",
-        SIGMA_CODEX_AUTH_CONNECTION_ID,
+        connectionId,
         "--json",
       ]).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, input.spawner),
@@ -381,23 +593,21 @@ export function makeSigmaAuthCapability(input: {
           () =>
             new ProviderAuthRpcError({
               code: "process_failed",
-              message: "Sigma could not run the ChatGPT logout command.",
+              message: "Sigma could not run the provider logout command.",
             }),
         ),
       );
       if (result.exitCode !== 0) {
         return yield* new ProviderAuthRpcError({
           code: "process_failed",
-          message: "Sigma could not complete ChatGPT logout.",
+          message: "Sigma could not complete provider logout.",
         });
       }
     });
 
   return {
     scopeKey: (connectionId) =>
-      connectionId === SIGMA_CODEX_AUTH_CONNECTION_ID
-        ? `host:${SIGMA_CODEX_AUTH_CONNECTION_ID}`
-        : undefined,
+      safeConnectionId(connectionId) ? `host:${connectionId}` : undefined,
     login: runLogin,
     logout,
   };

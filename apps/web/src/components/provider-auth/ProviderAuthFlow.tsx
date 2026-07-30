@@ -22,7 +22,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { readLocalApi } from "../../localApi";
 import { serverEnvironment } from "../../state/server";
@@ -42,6 +42,7 @@ import { RedactedSensitiveText } from "../settings/RedactedSensitiveText";
 import {
   isSafeProviderAuthExternalUrl,
   type ProviderModelAuthRequirement,
+  type ProviderModelUnpricedCostRequirement,
 } from "../../providerAuth";
 
 function errorMessage(error: unknown): string {
@@ -105,13 +106,13 @@ export function ProviderAuthLoginFlow(props: {
 
   const openExternal = useCallback(async (url: string) => {
     if (!isSafeProviderAuthExternalUrl(url)) {
-      setError("Sigma returned an invalid ChatGPT authentication URL.");
+      setError("Sigma returned an invalid provider authentication URL.");
       return;
     }
     try {
       await readLocalApi()?.shell.openExternal(url);
     } catch {
-      setError("Sigma Code could not open the system browser. Use the manual code prompt below.");
+      setError("Sigma Code could not open the system browser. Use the manual prompt below.");
     }
   }, []);
 
@@ -152,17 +153,24 @@ export function ProviderAuthLoginFlow(props: {
     ],
   );
 
+  const preferredAutoStartMethod = useMemo(
+    () =>
+      props.connection.loginMethods.find((method) => method.id === "browser")?.id ??
+      props.connection.loginMethods[0]?.id,
+    [props.connection.loginMethods],
+  );
+
   useEffect(() => {
     if (
       props.autoStart &&
       props.canStartLogin &&
       !autoStartedRef.current &&
-      props.connection.loginMethods.includes("browser")
+      preferredAutoStartMethod
     ) {
       autoStartedRef.current = true;
-      void start("browser");
+      void start(preferredAutoStartMethod);
     }
-  }, [props.autoStart, props.canStartLogin, props.connection.loginMethods, start]);
+  }, [preferredAutoStartMethod, props.autoStart, props.canStartLogin, start]);
 
   useEffect(
     () => () => {
@@ -265,8 +273,6 @@ export function ProviderAuthLoginFlow(props: {
     props.onCancel?.();
   }, [cancelAuth, operationId, props]);
 
-  const canUseBrowser = props.connection.loginMethods.includes("browser");
-  const canUseDeviceCode = props.connection.loginMethods.includes("device-code");
   return (
     <div className="space-y-3">
       {operationId ? (
@@ -286,28 +292,19 @@ export function ProviderAuthLoginFlow(props: {
 
       {operationId === null ? (
         <div className="flex flex-wrap gap-2">
-          {canUseBrowser ? (
+          {props.connection.loginMethods.map((method, index) => (
             <Button
+              key={method.id}
               type="button"
               size="sm"
+              {...(index > 0 ? { variant: "outline" as const } : {})}
               disabled={!props.canStartLogin || starting}
-              onClick={() => void start("browser")}
+              onClick={() => void start(method.id)}
             >
               {starting ? <LoaderIcon className="animate-spin" /> : <LogInIcon />}
-              Login with ChatGPT
+              {method.label}
             </Button>
-          ) : null}
-          {canUseDeviceCode ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!props.canStartLogin || starting}
-              onClick={() => void start("device-code")}
-            >
-              Use device code
-            </Button>
-          ) : null}
+          ))}
         </div>
       ) : null}
 
@@ -320,7 +317,9 @@ export function ProviderAuthLoginFlow(props: {
 
       {displayEvent?.type === "device_code" ? (
         <div className="space-y-2 rounded-lg border border-border/70 bg-muted/35 p-3">
-          <p className="text-xs text-muted-foreground">Enter this one-time code in ChatGPT:</p>
+          <p className="text-xs text-muted-foreground">
+            Enter this one-time code on the provider page:
+          </p>
           <div className="flex items-center gap-2">
             <code className="rounded bg-background px-2 py-1 text-sm font-semibold tracking-wider">
               {displayEvent.userCode}
@@ -341,7 +340,7 @@ export function ProviderAuthLoginFlow(props: {
               onClick={() => void openExternal(displayEvent.verificationUri)}
             >
               <ExternalLinkIcon />
-              Open ChatGPT
+              Open provider
             </Button>
           </div>
         </div>
@@ -391,7 +390,7 @@ export function ProviderAuthLoginFlow(props: {
       {displayEvent?.type === "completed" ? (
         <div className="flex items-center gap-2 text-sm text-success" aria-live="polite">
           <CheckCircle2Icon className="size-4" />
-          <span>ChatGPT subscription connected.</span>
+          <span>{props.connection.label} connected.</span>
         </div>
       ) : null}
 
@@ -425,6 +424,22 @@ export function ProviderAuthConnectionControls(props: {
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const authenticated = props.connection.status === "authenticated";
+  const canLogin = props.connection.actions.includes("login");
+  const canLogout = props.connection.actions.includes("logout");
+  const activeMethod = props.connection.loginMethods.find(
+    (method) => method.kind === props.connection.authType,
+  );
+  const statusDescription = authenticated
+    ? activeMethod?.billingMode === "subscription"
+      ? "Connected with subscription allowance billing."
+      : activeMethod?.billingMode === "unpriced"
+        ? "Connected, but this provider's model prices are not verified."
+        : activeMethod?.billingMode === "metered"
+          ? "Connected with metered provider billing."
+          : "Connected and ready to use."
+    : props.connection.status === "unknown"
+      ? "Authentication status is unavailable. Refresh the provider to try again."
+      : "Connect this provider before sending a task with one of its models.";
 
   const logout = useCallback(async () => {
     setLoggingOut(true);
@@ -459,26 +474,23 @@ export function ProviderAuthConnectionControls(props: {
               </span>
             ) : null}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {authenticated
-              ? "Connected through your ChatGPT/Codex subscription. API key billing is not used."
-              : props.connection.status === "unknown"
-                ? "Authentication status is unavailable. Refresh or sign in to continue."
-                : "Login once to run Sigma models with your ChatGPT/Codex subscription."}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{statusDescription}</p>
+          {props.connection.source ? (
+            <p className="mt-1 text-xs text-muted-foreground">Source: {props.connection.source}</p>
+          ) : null}
           {authenticated && props.connection.email ? (
             <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
               <span>Account</span>
               <RedactedSensitiveText
                 value={props.connection.email}
-                ariaLabel="Toggle ChatGPT account email visibility"
+                ariaLabel={`Toggle ${props.connection.label} account visibility`}
                 revealTooltip="Click to reveal email"
                 hideTooltip="Click to hide email"
               />
             </div>
           ) : null}
         </div>
-        {authenticated ? (
+        {authenticated && canLogout ? (
           <Button
             type="button"
             size="sm"
@@ -492,7 +504,7 @@ export function ProviderAuthConnectionControls(props: {
         ) : null}
       </div>
 
-      {!authenticated ? (
+      {canLogin ? (
         <ProviderAuthLoginFlow
           environmentId={props.environmentId}
           instanceId={props.instanceId}
@@ -518,14 +530,25 @@ export function ProviderAuthGateDialog(props: {
   readonly onCancel: () => void;
 }) {
   const connection = props.requirement.connection;
+  const activeBillingMode =
+    props.requirement.model.activeBillingMode ?? connection?.loginMethods[0]?.billingMode;
+  const billingDescription =
+    activeBillingMode === "subscription"
+      ? "This model uses the provider's subscription allowance."
+      : activeBillingMode === "unpriced"
+        ? "This model's monetary price is not verified. You will confirm unknown costs separately."
+        : activeBillingMode === "metered"
+          ? "This model uses metered billing from the provider."
+          : "Choose one of the provider's supported authentication methods.";
   return (
     <Dialog open onOpenChange={() => undefined}>
       <DialogPopup className="max-w-md" showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>Login to ChatGPT</DialogTitle>
+          <DialogTitle>
+            Connect to {connection?.label ?? props.requirement.connectionId}
+          </DialogTitle>
           <DialogDescription>
-            {props.requirement.model.name} uses your ChatGPT/Codex subscription. No OpenAI API key
-            or API-key billing is required.
+            {props.requirement.model.name} requires this model connection. {billingDescription}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel scrollFade={false}>
@@ -541,8 +564,8 @@ export function ProviderAuthGateDialog(props: {
             />
           ) : (
             <p className="text-sm leading-relaxed text-destructive">
-              This Sigma runtime advertises an authenticated model without its authentication
-              connection. Update the bundled Sigma runtime and refresh providers.
+              This Sigma runtime advertises a model without its authentication connection. Update
+              the bundled Sigma runtime and refresh providers.
             </p>
           )}
         </DialogPanel>
@@ -553,6 +576,35 @@ export function ProviderAuthGateDialog(props: {
             </Button>
           </DialogFooter>
         ) : null}
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+export function ProviderUnpricedCostGateDialog(props: {
+  readonly requirement: ProviderModelUnpricedCostRequirement;
+  readonly onConfirm: () => void;
+  readonly onCancel: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={() => undefined}>
+      <DialogPopup className="max-w-md" showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>Confirm unknown model pricing</DialogTitle>
+          <DialogDescription>
+            Sigma does not have verified monetary pricing for {props.requirement.model.name}.
+            Continuing allows unknown monetary cost for this task only. Token, turn, tool, and known
+            metered-cost limits remain active.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={props.onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={props.onConfirm}>
+            Allow for this task
+          </Button>
+        </DialogFooter>
       </DialogPopup>
     </Dialog>
   );

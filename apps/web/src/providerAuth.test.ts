@@ -7,9 +7,12 @@ import {
 } from "@t3tools/contracts";
 
 import {
+  allowUnpricedCostsForModelSelection,
   isSafeProviderAuthExternalUrl,
+  modelSelectionAllowsUnpricedCosts,
   providerModelNeedsLogin,
   resolveProviderModelAuthRequirement,
+  resolveProviderModelUnpricedCostRequirement,
 } from "./providerAuth";
 
 const selection: ModelSelection = {
@@ -33,7 +36,20 @@ function provider(status: "authenticated" | "unauthenticated" | "unknown"): Serv
         id: "openai-codex",
         label: "ChatGPT Subscription",
         status,
-        loginMethods: ["browser", "device-code"],
+        loginMethods: [
+          {
+            id: "browser",
+            label: "Login with ChatGPT",
+            kind: "oauth",
+            billingMode: "subscription",
+          },
+          {
+            id: "device-code",
+            label: "Use device code",
+            kind: "oauth",
+            billingMode: "subscription",
+          },
+        ],
         scope: "host",
         actions: status === "authenticated" ? ["logout"] : ["login"],
         experimental: true,
@@ -81,5 +97,29 @@ describe("provider subscription authentication", () => {
     expect(isSafeProviderAuthExternalUrl("file:///C:/Windows/System32/calc.exe")).toBe(false);
     expect(isSafeProviderAuthExternalUrl("https://user:secret@auth.openai.com/")).toBe(false);
     expect(isSafeProviderAuthExternalUrl("not a URL")).toBe(false);
+  });
+
+  it("requires and persists task-scoped consent for an unpriced model", () => {
+    const current = provider("authenticated");
+    const withUnpricedModel = {
+      ...current,
+      models: current.models.map((model, index) =>
+        index === 0
+          ? {
+              ...model,
+              billingModes: ["unpriced"] as const,
+              activeBillingMode: "unpriced" as const,
+            }
+          : model,
+      ),
+    };
+    expect(
+      resolveProviderModelUnpricedCostRequirement([withUnpricedModel], selection),
+    ).not.toBeNull();
+    expect(modelSelectionAllowsUnpricedCosts(selection)).toBe(false);
+
+    const allowed = allowUnpricedCostsForModelSelection(selection);
+    expect(modelSelectionAllowsUnpricedCosts(allowed)).toBe(true);
+    expect(allowed.options).toEqual([{ id: "allowUnpricedCosts", value: true }]);
   });
 });

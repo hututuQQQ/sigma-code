@@ -152,6 +152,23 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  const resolveConnection = Effect.fn("ProviderAuthOperations.resolveConnection")(function* (
+    instance: ProviderInstance,
+    connectionId: string,
+  ) {
+    const snapshot = yield* instance.snapshot.getSnapshot;
+    const connection = (snapshot.authConnections ?? []).find(
+      (candidate) => candidate.id === connectionId,
+    );
+    if (!connection) {
+      return yield* rpcError(
+        "connection_not_found",
+        "The selected authentication connection is not available.",
+      );
+    }
+    return connection;
+  });
+
   const releaseScope = (scopeKey: string, operationId: ProviderAuthOperationId) =>
     mutationLock.withPermits(1)(
       Ref.update(activeScopes, (current) => {
@@ -180,6 +197,13 @@ export const make = Effect.gen(function* () {
     mutationLock.withPermits(1)(
       Effect.gen(function* () {
         const { instance, capability } = yield* resolveCapability(input.instanceId);
+        const connection = yield* resolveConnection(instance, input.connectionId);
+        if (!connection.loginMethods.some((method) => method.id === input.loginMethod)) {
+          return yield* rpcError(
+            "invalid_input",
+            "The selected authentication method is not available for this connection.",
+          );
+        }
         const scopeKey = capability.scopeKey(input.connectionId);
         if (!scopeKey) {
           return yield* rpcError(
@@ -191,7 +215,7 @@ export const make = Effect.gen(function* () {
         if (active.has(scopeKey)) {
           return yield* rpcError(
             "already_running",
-            "A login for this shared ChatGPT account is already in progress.",
+            "A login for this shared provider connection is already in progress.",
           );
         }
 
@@ -315,7 +339,8 @@ export const make = Effect.gen(function* () {
   const logout: ProviderAuthOperationsShape["logout"] = (input) =>
     mutationLock.withPermits(1)(
       Effect.gen(function* () {
-        const { capability } = yield* resolveCapability(input.instanceId);
+        const { instance, capability } = yield* resolveCapability(input.instanceId);
+        yield* resolveConnection(instance, input.connectionId);
         const scopeKey = capability.scopeKey(input.connectionId);
         if (!scopeKey) {
           return yield* rpcError(
@@ -326,7 +351,7 @@ export const make = Effect.gen(function* () {
         if ((yield* Ref.get(activeScopes)).has(scopeKey)) {
           return yield* rpcError(
             "already_running",
-            "Cancel the active ChatGPT login before signing out.",
+            "Cancel the active provider login before signing out.",
           );
         }
         yield* capability.logout(input.connectionId).pipe(Effect.scoped);

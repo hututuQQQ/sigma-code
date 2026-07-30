@@ -61,7 +61,22 @@ describe("ServerProvider", () => {
     });
 
     expect((parsed.authConnections ?? [])[0]?.scope).toBe("host");
+    expect((parsed.authConnections ?? [])[0]?.loginMethods).toEqual([
+      {
+        id: "browser",
+        label: "Login in browser",
+        kind: "oauth",
+        billingMode: "subscription",
+      },
+      {
+        id: "device-code",
+        label: "Use device code",
+        kind: "oauth",
+        billingMode: "subscription",
+      },
+    ]);
     expect(parsed.models[0]?.authConnectionId).toBe("openai-codex");
+    expect(parsed.models[0]?.billingModes).toBeUndefined();
     expect(parsed.auth.status).toBe("unknown");
   });
 

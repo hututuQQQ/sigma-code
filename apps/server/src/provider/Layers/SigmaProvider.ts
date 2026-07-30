@@ -29,10 +29,11 @@ import {
   sigmaModelsFromSessionSetup,
 } from "../acp/SigmaAcpSupport.ts";
 import {
-  makePendingSigmaCodexAuthConnection,
-  readSigmaCodexAuthConnection,
+  makePendingSigmaAuthConnections,
+  readSigmaAuthConnections,
+  readSigmaModelCatalog,
   SIGMA_CODEX_AUTH_CONNECTION_ID,
-} from "../SigmaAuthCapability.ts";
+} from "../SigmaPiCapability.ts";
 
 const SIGMA_PRESENTATION = {
   displayName: "Sigma",
@@ -75,7 +76,7 @@ export const buildInitialSigmaProviderSnapshot = Effect.fn("buildInitialSigmaPro
       enabled: settings.enabled,
       checkedAt,
       models,
-      authConnections: [makePendingSigmaCodexAuthConnection()],
+      authConnections: makePendingSigmaAuthConnections(),
       probe: settings.enabled
         ? {
             installed: true,
@@ -173,7 +174,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
-      authConnections: [makePendingSigmaCodexAuthConnection()],
+      authConnections: makePendingSigmaAuthConnections(),
       probe: {
         installed: !isCommandMissingCause(error),
         version: null,
@@ -191,7 +192,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
-      authConnections: [makePendingSigmaCodexAuthConnection()],
+      authConnections: makePendingSigmaAuthConnections(),
       probe: {
         installed: true,
         version: null,
@@ -210,7 +211,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
-      authConnections: [makePendingSigmaCodexAuthConnection()],
+      authConnections: makePendingSigmaAuthConnections(),
       probe: {
         installed: true,
         version,
@@ -221,7 +222,10 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
     });
   }
 
-  const authConnection = yield* readSigmaCodexAuthConnection(settings, environment);
+  const [authConnections, cliModels] = yield* Effect.all(
+    [readSigmaAuthConnections(settings, environment), readSigmaModelCatalog(settings, environment)],
+    { concurrency: "unbounded" },
+  );
   const acpExit = yield* probeSigmaAcp(settings, environment).pipe(
     Effect.timeoutOption(ACP_PROBE_TIMEOUT_MS),
     Effect.exit,
@@ -235,7 +239,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
-      authConnections: [authConnection],
+      authConnections,
       probe: {
         installed: true,
         version,
@@ -251,7 +255,7 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
       enabled: true,
       checkedAt,
       models: fallbackModels,
-      authConnections: [authConnection],
+      authConnections,
       probe: {
         installed: true,
         version,
@@ -262,13 +266,13 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
     });
   }
 
-  const discovered = acpExit.value.value;
+  const discovered = cliModels.length > 0 ? cliModels : acpExit.value.value;
   return buildServerProvider({
     presentation: SIGMA_PRESENTATION,
     enabled: true,
     checkedAt,
     models: modelsFromSettings(settings.customModels, discovered),
-    authConnections: [authConnection],
+    authConnections,
     probe: {
       installed: true,
       version,

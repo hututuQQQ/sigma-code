@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import { ExecutionEnvironmentDescriptor, ServerSelfUpdateMethod } from "./environment.ts";
 import { ServerAuthDescriptor } from "./auth.ts";
 import {
@@ -58,8 +59,47 @@ export const ServerProviderAuth = Schema.Struct({
 });
 export type ServerProviderAuth = typeof ServerProviderAuth.Type;
 
-export const ProviderAuthLoginMethod = Schema.Literals(["browser", "device-code"]);
+export const ProviderBillingMode = Schema.Literals(["metered", "subscription", "unpriced"]);
+export type ProviderBillingMode = typeof ProviderBillingMode.Type;
+
+export const ProviderAuthLoginMethod = TrimmedNonEmptyString;
 export type ProviderAuthLoginMethod = typeof ProviderAuthLoginMethod.Type;
+
+export const ProviderAuthMethodKind = Schema.Literals(["api_key", "oauth"]);
+export type ProviderAuthMethodKind = typeof ProviderAuthMethodKind.Type;
+
+export const ProviderAuthMethod = Schema.Struct({
+  id: ProviderAuthLoginMethod,
+  label: TrimmedNonEmptyString,
+  kind: ProviderAuthMethodKind,
+  billingMode: ProviderBillingMode,
+});
+export type ProviderAuthMethod = typeof ProviderAuthMethod.Type;
+
+const LegacyProviderAuthLoginMethod = Schema.Literals(["browser", "device-code"]);
+const LegacyProviderAuthMethod = LegacyProviderAuthLoginMethod.pipe(
+  Schema.decodeTo(
+    ProviderAuthMethod,
+    SchemaTransformation.transformOrFail({
+      decode: (id) =>
+        Effect.succeed({
+          id,
+          label: id === "browser" ? "Login in browser" : "Use device code",
+          kind: "oauth",
+          billingMode: "subscription",
+        } as typeof ProviderAuthMethod.Encoded),
+      encode: (method) =>
+        Effect.succeed(
+          (method.id === "device-code"
+            ? "device-code"
+            : "browser") as typeof LegacyProviderAuthLoginMethod.Encoded,
+        ),
+    }),
+  ),
+);
+const ProviderAuthMethods = Schema.Array(
+  Schema.Union([ProviderAuthMethod, LegacyProviderAuthMethod]),
+);
 
 export const ServerProviderAuthConnectionScope = Schema.Literals(["host", "instance"]);
 export type ServerProviderAuthConnectionScope = typeof ServerProviderAuthConnectionScope.Type;
@@ -72,7 +112,9 @@ export const ServerProviderAuthConnection = Schema.Struct({
   label: TrimmedNonEmptyString,
   status: ServerProviderAuthStatus,
   email: Schema.optional(TrimmedNonEmptyString),
-  loginMethods: Schema.Array(ProviderAuthLoginMethod),
+  loginMethods: ProviderAuthMethods,
+  authType: Schema.optional(ProviderAuthMethodKind),
+  source: Schema.optional(TrimmedNonEmptyString),
   scope: ServerProviderAuthConnectionScope,
   actions: Schema.Array(ServerProviderAuthConnectionAction),
   experimental: Schema.optional(Schema.Boolean),
@@ -87,6 +129,9 @@ export const ServerProviderModel = Schema.Struct({
   isCustom: Schema.Boolean,
   isDefault: Schema.optional(Schema.Boolean),
   authConnectionId: Schema.optional(TrimmedNonEmptyString),
+  billingModes: Schema.optional(Schema.Array(ProviderBillingMode)),
+  activeBillingMode: Schema.optional(ProviderBillingMode),
+  isRecommended: Schema.optional(Schema.Boolean),
   capabilities: Schema.NullOr(ModelCapabilities),
 });
 export type ServerProviderModel = typeof ServerProviderModel.Type;
