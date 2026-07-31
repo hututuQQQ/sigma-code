@@ -11,7 +11,7 @@ import * as Scope from "effect/Scope";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
-import { normalizeModelSlug } from "@t3tools/shared/model";
+import { getModelSelectionStringOptionValue, normalizeModelSlug } from "@t3tools/shared/model";
 
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 import { resolveSigmaProcessEnvironment } from "../SigmaProxyEnvironment.ts";
@@ -19,6 +19,17 @@ import { resolveSigmaProcessEnvironment } from "../SigmaProxyEnvironment.ts";
 const SIGMA_DRIVER_KIND = ProviderDriverKind.make("sigma");
 const DEFAULT_SIGMA_MODEL = DEFAULT_SIGMA_SUBSCRIPTION_MODEL;
 const SIGMA_MODEL_CONFIG_ID = "sigma.model";
+export const SIGMA_REASONING_EFFORT_CONFIG_ID = "sigma.reasoning_effort";
+export const SIGMA_REASONING_EFFORTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+export type SigmaReasoningEffort = (typeof SIGMA_REASONING_EFFORTS)[number];
 const DEFAULT_SIGMA_BINARY = "sigma";
 
 export const BUNDLED_SIGMA_BINARY_ENV = "SIGMACODE_BUNDLED_SIGMA_PATH";
@@ -132,19 +143,65 @@ export function currentSigmaModelIdFromSessionSetup(
 }
 
 export function applySigmaAcpModelSelection<E>(input: {
-  readonly runtime: Pick<AcpSessionRuntime.AcpSessionRuntime["Service"], "setModel">;
+  readonly runtime: Pick<
+    AcpSessionRuntime.AcpSessionRuntime["Service"],
+    "setConfigOption" | "setModel"
+  >;
   readonly currentModelId: string | undefined;
   readonly requestedModelId: string | undefined;
+  readonly modelSelection?: ModelSelection;
   readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
 }): Effect.Effect<string | undefined, E> {
   const shouldSwitchModel =
     input.requestedModelId !== undefined && input.requestedModelId !== input.currentModelId;
-  if (!shouldSwitchModel) {
-    return Effect.succeed(input.currentModelId);
+  const reasoningEffort = getModelSelectionStringOptionValue(
+    input.modelSelection,
+    "reasoningEffort",
+  );
+  return Effect.gen(function* () {
+    const currentModelId = shouldSwitchModel
+      ? yield* input.runtime
+          .setModel(input.requestedModelId)
+          .pipe(Effect.mapError(input.mapError), Effect.as(input.requestedModelId))
+      : input.currentModelId;
+    if (reasoningEffort) {
+      yield* input.runtime
+        .setConfigOption(SIGMA_REASONING_EFFORT_CONFIG_ID, reasoningEffort)
+        .pipe(Effect.mapError(input.mapError));
+    }
+    return currentModelId;
+  });
+}
+
+export function sigmaReasoningEffortFromSessionSetup(
+  sessionSetupResult:
+    | EffectAcpSchema.LoadSessionResponse
+    | EffectAcpSchema.NewSessionResponse
+    | EffectAcpSchema.ResumeSessionResponse,
+): {
+  readonly supportedReasoningEfforts: ReadonlyArray<SigmaReasoningEffort>;
+  readonly currentReasoningEffort: SigmaReasoningEffort | undefined;
+} {
+  const reasoningOption = sessionSetupResult.configOptions?.find(
+    (option) =>
+      option.id === SIGMA_REASONING_EFFORT_CONFIG_ID || option.category === "thought_level",
+  );
+  if (reasoningOption?.type !== "select") {
+    return { supportedReasoningEfforts: [], currentReasoningEffort: undefined };
   }
-  return input.runtime
-    .setModel(input.requestedModelId)
-    .pipe(Effect.mapError(input.mapError), Effect.as(input.requestedModelId));
+  const supportedReasoningEfforts = reasoningOption.options
+    .flatMap((option) => ("options" in option ? option.options : [option]))
+    .map((option) => option.value)
+    .filter((value): value is SigmaReasoningEffort =>
+      (SIGMA_REASONING_EFFORTS as readonly string[]).includes(value),
+    )
+    .filter((value, index, all) => all.indexOf(value) === index);
+  const currentReasoningEffort =
+    typeof reasoningOption.currentValue === "string" &&
+    (SIGMA_REASONING_EFFORTS as readonly string[]).includes(reasoningOption.currentValue)
+      ? (reasoningOption.currentValue as SigmaReasoningEffort)
+      : undefined;
+  return { supportedReasoningEfforts, currentReasoningEffort };
 }
 
 export function sigmaModelsFromSessionSetup(

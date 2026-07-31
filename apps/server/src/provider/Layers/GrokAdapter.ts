@@ -1,6 +1,7 @@
 import {
   ApprovalRequestId,
   type GrokSettings,
+  type ModelSelection,
   EventId,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
@@ -105,6 +106,7 @@ export interface AcpAdapterModelSupport {
     readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
     readonly currentModelId: string | undefined;
     readonly requestedModelId: string | undefined;
+    readonly modelSelection?: ModelSelection;
     readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
   }) => Effect.Effect<string | undefined, E>;
 }
@@ -291,7 +293,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
     const boundInstanceId =
       options?.instanceId ?? profile?.defaultInstanceId ?? ProviderInstanceId.make("grok");
     const makeRuntime = profile?.makeRuntime ?? makeGrokAcpRuntime;
-    const modelSupport = profile?.modelSupport ?? {
+    const modelSupport: AcpAdapterModelSupport = profile?.modelSupport ?? {
       resolveModelId: resolveGrokAcpBaseModelId,
       currentModelId: currentGrokModelIdFromSessionSetup,
       applySelection: applyGrokAcpModelSelection,
@@ -868,6 +870,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             runtime: acp,
             currentModelId: modelSupport.currentModelId(started.sessionSetupResult),
             requestedModelId: requestedStartModelId,
+            ...(grokModelSelection ? { modelSelection: grokModelSelection } : {}),
             mapError: (cause) =>
               mapAcpToAdapterError(provider, input.threadId, "session/set_model", cause),
           });
@@ -1082,6 +1085,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 runtime: ctx.acp,
                 currentModelId: ctx.currentModelId,
                 requestedModelId: requestedTurnModelId,
+                ...(turnModelSelection ? { modelSelection: turnModelSelection } : {}),
                 mapError: (cause) =>
                   mapAcpToAdapterError(provider, input.threadId, "session/set_model", cause),
               });

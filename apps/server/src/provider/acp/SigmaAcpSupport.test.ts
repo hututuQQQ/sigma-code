@@ -10,6 +10,7 @@ import {
   resolveSigmaBinaryPath,
   resolveSigmaAcpModelId,
   sigmaModelsFromSessionSetup,
+  sigmaReasoningEffortFromSessionSetup,
 } from "./SigmaAcpSupport.ts";
 
 describe("SigmaAcpSupport", () => {
@@ -33,6 +34,22 @@ describe("SigmaAcpSupport", () => {
             name: "GLM",
             options: [{ value: "glm/glm-5.2", name: "GLM 5.2" }],
           },
+        ],
+      },
+      {
+        id: "sigma.reasoning_effort",
+        name: "Reasoning",
+        category: "thought_level",
+        type: "select",
+        currentValue: "medium",
+        options: [
+          { value: "none", name: "None" },
+          { value: "minimal", name: "Minimal" },
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+          { value: "xhigh", name: "Extra High" },
+          { value: "max", name: "Max" },
         ],
       },
     ],
@@ -131,15 +148,28 @@ describe("SigmaAcpSupport", () => {
       { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro" },
       { id: "glm/glm-5.2", name: "GLM 5.2" },
     ]);
+    expect(sigmaReasoningEffortFromSessionSetup(sessionSetup)).toEqual({
+      supportedReasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+      currentReasoningEffort: "medium",
+    });
+    expect(sigmaReasoningEffortFromSessionSetup(flatSessionSetup)).toEqual({
+      supportedReasoningEfforts: [],
+      currentReasoningEffort: undefined,
+    });
   });
 
-  it.effect("sets the negotiated model config only when it changes", () =>
+  it.effect("sets the negotiated model and reasoning configs", () =>
     Effect.gen(function* () {
       const calls: string[] = [];
       const runtime = {
         setModel: (model: string) =>
           Effect.sync(() => {
-            calls.push(model);
+            calls.push(`model:${model}`);
+          }),
+        setConfigOption: (configId: string, value: string | boolean) =>
+          Effect.sync(() => {
+            calls.push(`${configId}:${String(value)}`);
+            return { configOptions: [] };
           }),
       };
 
@@ -147,6 +177,11 @@ describe("SigmaAcpSupport", () => {
         runtime,
         currentModelId: "deepseek/deepseek-v4-pro",
         requestedModelId: "glm/glm-5.2",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("sigma"),
+          model: "glm/glm-5.2",
+          options: [{ id: "reasoningEffort", value: "high" }],
+        },
         mapError: (cause) => cause,
       });
       const unchanged = yield* applySigmaAcpModelSelection({
@@ -158,7 +193,7 @@ describe("SigmaAcpSupport", () => {
 
       expect(switched).toBe("glm/glm-5.2");
       expect(unchanged).toBe("glm/glm-5.2");
-      expect(calls).toEqual(["glm/glm-5.2"]);
+      expect(calls).toEqual(["model:glm/glm-5.2", "sigma.reasoning_effort:high"]);
     }),
   );
 });

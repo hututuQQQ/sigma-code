@@ -70,6 +70,8 @@ const MODEL_LIST = JSON.stringify({
       billingModes: ["subscription"],
       activeBillingMode: null,
       isRecommended: true,
+      supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultReasoningEffort: "medium",
     },
     {
       provider: "example-api",
@@ -84,6 +86,22 @@ const MODEL_LIST = JSON.stringify({
       billingModes: ["unpriced"],
       activeBillingMode: "unpriced",
       isRecommended: false,
+    },
+    {
+      provider: "example-api",
+      id: "reasoning-model",
+      slug: "example-api/reasoning-model",
+      name: "Reasoning Model",
+      api: "google-generative-ai",
+      contextWindowTokens: 128_000,
+      maxOutputTokens: 16_000,
+      reasoning: true,
+      imageInput: false,
+      billingModes: ["metered"],
+      activeBillingMode: "metered",
+      isRecommended: false,
+      supportedReasoningEfforts: ["minimal", "high"],
+      defaultReasoningEffort: "minimal",
     },
   ],
 });
@@ -174,11 +192,28 @@ describe("SigmaPiCapability", () => {
           },
         ],
       });
-      expect(models).toHaveLength(2);
+      expect(models).toHaveLength(3);
       expect(models[0]).toMatchObject({
         slug: "openai-codex/gpt-5.6-terra",
         authConnectionId: "openai-codex",
         isRecommended: true,
+        capabilities: {
+          optionDescriptors: [
+            {
+              id: "reasoningEffort",
+              type: "select",
+              currentValue: "medium",
+              options: [
+                { id: "none", label: "None" },
+                { id: "low", label: "Low" },
+                { id: "medium", label: "Medium", isDefault: true },
+                { id: "high", label: "High" },
+                { id: "xhigh", label: "Extra High" },
+                { id: "max", label: "Max" },
+              ],
+            },
+          ],
+        },
       });
       expect(models[1]).toMatchObject({
         slug: "example-api/unknown-price",
@@ -186,6 +221,23 @@ describe("SigmaPiCapability", () => {
         capabilities: {
           optionDescriptors: [
             expect.objectContaining({ id: "allowUnpricedCosts", type: "boolean" }),
+          ],
+        },
+      });
+      expect(models[2]).toMatchObject({
+        slug: "example-api/reasoning-model",
+        authConnectionId: "example-api",
+        capabilities: {
+          optionDescriptors: [
+            {
+              id: "reasoningEffort",
+              type: "select",
+              currentValue: "minimal",
+              options: [
+                { id: "minimal", label: "Minimal", isDefault: true },
+                { id: "high", label: "High" },
+              ],
+            },
           ],
         },
       });
