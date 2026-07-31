@@ -1,5 +1,7 @@
 import {
   ProviderAuthRpcError,
+  type ModelCapabilities,
+  type ProviderOptionDescriptor,
   type ServerProviderAuthConnection,
   type ServerProviderModel,
   type SigmaSettings,
@@ -14,13 +16,18 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import type { ProviderAuthCapability, ProviderAuthCapabilityEvent } from "./ProviderDriver.ts";
 import { collectStreamAsString } from "./providerSnapshot.ts";
-import { resolveSigmaBinaryPath } from "./acp/SigmaAcpSupport.ts";
+import {
+  resolveSigmaBinaryPath,
+  SIGMA_REASONING_EFFORTS,
+  type SigmaReasoningEffort,
+} from "./acp/SigmaAcpSupport.ts";
 import { resolveSigmaProcessEnvironment } from "./SigmaProxyEnvironment.ts";
 
 export const SIGMA_CODEX_AUTH_CONNECTION_ID = "openai-codex";
 
 const BillingMode = Schema.Literals(["metered", "subscription", "unpriced"]);
 const AuthKind = Schema.Literals(["api_key", "oauth"]);
+const ReasoningEffort = Schema.Literals(SIGMA_REASONING_EFFORTS);
 const CliAuthMethod = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
@@ -67,6 +74,8 @@ const CliModel = Schema.Struct({
   billingModes: Schema.Array(BillingMode),
   activeBillingMode: Schema.NullOr(BillingMode),
   isRecommended: Schema.Boolean,
+  supportedReasoningEfforts: Schema.optional(Schema.Array(ReasoningEffort)),
+  defaultReasoningEffort: Schema.optional(ReasoningEffort),
 });
 const CliModelsListOutput = Schema.Struct({
   schemaVersion: Schema.Literal(1),
@@ -122,17 +131,52 @@ const CliAuthEvent = Schema.Union([
 const decodeCliAuthEvent = Schema.decodeUnknownOption(Schema.fromJsonString(CliAuthEvent));
 const encodeCliInput = Schema.encodeSync(Schema.UnknownFromJsonString);
 
-const EMPTY_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
-const UNPRICED_CAPABILITIES = createModelCapabilities({
-  optionDescriptors: [
-    {
+const REASONING_EFFORT_LABELS: Readonly<Record<SigmaReasoningEffort, string>> = {
+  none: "None",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  max: "Max",
+};
+
+export function sigmaModelCapabilities(input: {
+  readonly supportedReasoningEfforts?: ReadonlyArray<SigmaReasoningEffort>;
+  readonly defaultReasoningEffort?: SigmaReasoningEffort;
+  readonly allowUnpricedCosts?: boolean;
+}): ModelCapabilities {
+  const optionDescriptors: ProviderOptionDescriptor[] = [];
+  const supportedReasoningEfforts = input.supportedReasoningEfforts ?? [];
+  if (supportedReasoningEfforts.length > 0) {
+    const defaultReasoningEffort =
+      input.defaultReasoningEffort &&
+      supportedReasoningEfforts.includes(input.defaultReasoningEffort)
+        ? input.defaultReasoningEffort
+        : supportedReasoningEfforts[0];
+    optionDescriptors.push({
+      id: "reasoningEffort",
+      label: "Reasoning",
+      description: "Controls how much reasoning Sigma asks the selected model to use.",
+      type: "select",
+      ...(defaultReasoningEffort ? { currentValue: defaultReasoningEffort } : {}),
+      options: supportedReasoningEfforts.map((effort) => ({
+        id: effort,
+        label: REASONING_EFFORT_LABELS[effort],
+        ...(effort === defaultReasoningEffort ? { isDefault: true } : {}),
+      })),
+    });
+  }
+  if (input.allowUnpricedCosts) {
+    optionDescriptors.push({
       id: "allowUnpricedCosts",
       label: "Allow unknown monetary cost for this task",
       description: "Required before Sigma can send this task to a model whose price is unknown.",
       type: "boolean",
-    },
-  ],
-});
+    });
+  }
+  return createModelCapabilities({ optionDescriptors });
+}
 
 function safeText(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -433,7 +477,15 @@ export const readSigmaModelCatalog = Effect.fn("SigmaPiCapability.readSigmaModel
         billingModes: model.billingModes,
         ...(model.activeBillingMode ? { activeBillingMode: model.activeBillingMode } : {}),
         ...(model.isRecommended ? { isRecommended: true } : {}),
-        capabilities: requiresUnpricedConfirmation ? UNPRICED_CAPABILITIES : EMPTY_CAPABILITIES,
+        capabilities: sigmaModelCapabilities({
+          ...(model.supportedReasoningEfforts
+            ? { supportedReasoningEfforts: model.supportedReasoningEfforts }
+            : {}),
+          ...(model.defaultReasoningEffort
+            ? { defaultReasoningEffort: model.defaultReasoningEffort }
+            : {}),
+          allowUnpricedCosts: requiresUnpricedConfirmation,
+        }),
       };
     });
   },

@@ -27,11 +27,13 @@ import {
   makeSigmaAcpRuntime,
   resolveSigmaBinaryPath,
   sigmaModelsFromSessionSetup,
+  sigmaReasoningEffortFromSessionSetup,
 } from "../acp/SigmaAcpSupport.ts";
 import {
   makePendingSigmaAuthConnections,
   readSigmaAuthConnections,
   readSigmaModelCatalog,
+  sigmaModelCapabilities,
   SIGMA_CODEX_AUTH_CONNECTION_ID,
 } from "../SigmaPiCapability.ts";
 
@@ -49,7 +51,10 @@ const FALLBACK_SIGMA_MODELS: ReadonlyArray<ServerProviderModel> = [
     name: "GPT-5.6 Terra",
     isCustom: false,
     isDefault: true,
-    capabilities: EMPTY_CAPABILITIES,
+    capabilities: sigmaModelCapabilities({
+      supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultReasoningEffort: "medium",
+    }),
   },
 ];
 const VERSION_PROBE_TIMEOUT_MS = 15_000;
@@ -135,6 +140,7 @@ const probeSigmaAcp = (settings: SigmaSettings, environment: NodeJS.ProcessEnv) 
       const currentModel = started.sessionSetupResult.configOptions?.find(
         (option) => option.category === "model",
       )?.currentValue;
+      const reasoning = sigmaReasoningEffortFromSessionSetup(started.sessionSetupResult);
       return sigmaModelsFromSessionSetup(started.sessionSetupResult).map(
         (model): ServerProviderModel => ({
           slug: model.id,
@@ -143,7 +149,15 @@ const probeSigmaAcp = (settings: SigmaSettings, environment: NodeJS.ProcessEnv) 
           ...(typeof currentModel === "string" && model.id === currentModel
             ? { isDefault: true }
             : {}),
-          capabilities: EMPTY_CAPABILITIES,
+          capabilities:
+            typeof currentModel === "string" && model.id === currentModel
+              ? sigmaModelCapabilities({
+                  supportedReasoningEfforts: reasoning.supportedReasoningEfforts,
+                  ...(reasoning.currentReasoningEffort
+                    ? { defaultReasoningEffort: reasoning.currentReasoningEffort }
+                    : {}),
+                })
+              : EMPTY_CAPABILITIES,
         }),
       );
     }).pipe(Effect.ensuring(runtime.close.pipe(Effect.timeoutOption("5 seconds"), Effect.ignore)));
