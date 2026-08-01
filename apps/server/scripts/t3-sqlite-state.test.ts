@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import * as NodeSqliteClient from "../src/persistence/NodeSqliteClient.ts";
 import { runSqliteState } from "./t3-sqlite-state.ts";
@@ -76,6 +77,7 @@ it.layer(NodeServices.layer)("t3-sqlite-state", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
+      const platform = yield* HostProcessPlatform;
       const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-sqlite-state-exec-" });
       yield* createFixtureDatabase(baseDir);
 
@@ -87,7 +89,7 @@ it.layer(NodeServices.layer)("t3-sqlite-state", (it) => {
       assert.equal(mutation.operation, "exec");
       if (mutation.operation === "exec") {
         const backup = yield* fs.stat(mutation.backup);
-        if (process.platform !== "win32") {
+        if (platform !== "win32") {
           assert.equal(backup.mode & 0o777, 0o600);
         }
       }
@@ -102,7 +104,7 @@ it.layer(NodeServices.layer)("t3-sqlite-state", (it) => {
       ).pipe(Effect.flip);
       assert.equal(error._tag, "SqliteStateSharedHomeMutationError");
 
-      if (process.platform !== "win32") {
+      if (platform !== "win32") {
         const aliasParent = yield* fs.makeTempDirectoryScoped({
           prefix: "t3-sqlite-state-alias-",
         });

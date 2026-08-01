@@ -3,8 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
-import * as NodeFs from "node:fs";
-import * as NodeUrl from "node:url";
+import * as NodeFS from "node:fs";
+import * as NodeURL from "node:url";
 import { defineProject, type TestProjectInlineConfiguration } from "vite-plus/test/config";
 import "vite-plus/test/config";
 import { defineConfig } from "vite-plus";
@@ -16,7 +16,7 @@ import { DEV_PROXIED_PATH_PREFIXES } from "@t3tools/shared/devProxy";
 import { clearUntrustedPublicConfigAliases, loadRepoEnv } from "../../scripts/lib/public-config";
 import { DISTRIBUTION_LEGAL_RESOURCES } from "../../scripts/lib/distribution-legal-resources";
 
-const repositoryRoot = NodeUrl.fileURLToPath(new URL("../../", import.meta.url));
+const repositoryRoot = NodeURL.fileURLToPath(new URL("../../", import.meta.url));
 const distributionLegalResourcesPlugin = {
   name: "sigma-code-distribution-legal-resources",
   apply: "build" as const,
@@ -25,8 +25,8 @@ const distributionLegalResourcesPlugin = {
       this.emitFile({
         type: "asset",
         fileName: `legal/${legalResource.targetFileName}`,
-        source: NodeFs.readFileSync(
-          new URL(legalResource.sourceRelativePath, NodeUrl.pathToFileURL(repositoryRoot)),
+        source: NodeFS.readFileSync(
+          new URL(legalResource.sourceRelativePath, NodeURL.pathToFileURL(repositoryRoot)),
         ),
       });
     }

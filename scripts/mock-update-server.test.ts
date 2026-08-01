@@ -5,6 +5,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { HttpClient, HttpRouter } from "effect/unstable/http";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { makeMockUpdateRouteLayer } from "./mock-update-server.ts";
 
@@ -74,6 +75,8 @@ it.layer(NodeServices.layer)("mock-update-server", (it) => {
 
   it.effect("rejects symlinked files that escape the configured root", () =>
     Effect.gen(function* () {
+      if ((yield* HostProcessPlatform) === "win32") return;
+
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fileSystem.makeTempDirectoryScoped({

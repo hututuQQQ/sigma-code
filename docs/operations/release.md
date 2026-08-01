@@ -1,9 +1,11 @@
-# Upstream-only reference: release checklist
+# Release operations reference
 
-> The executable workflows described below are disabled in this downstream.
-> Do not use T3 repositories, hosted endpoints, Clerk applications, signing
-> identities, update metadata, or secrets for Sigma Code. A Sigma-owned release
-> repository and credentials must be configured before re-enabling any step.
+> The T3 workflows described below remain disabled in this downstream. Official
+> Sigma Code Windows installers are built by the `Release verification and
+publication` workflow in `hututuQQQ/sigma`, from the matching immutable tag in
+> this repository, and are published in Sigma Releases. Do not use T3
+> repositories, hosted endpoints, Clerk applications, signing identities,
+> update metadata, or secrets for Sigma Code.
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 
