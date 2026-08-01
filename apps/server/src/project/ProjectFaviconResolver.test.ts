@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
+import { T3_PROJECT_FILE_NAME } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -62,26 +63,27 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
       }),
     );
 
-    it.effect("prefers a t3.json iconPath over well-known files", () =>
+    it.effect("prefers a sigma.json iconPath over well-known files", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
         const cwd = yield* makeTempDir;
-        yield* writeTextFile(cwd, "t3.json", '{ "iconPath": "brand/mark.svg" }');
+        yield* writeTextFile(cwd, T3_PROJECT_FILE_NAME, '{ "iconPath": "brand/mark.svg" }');
         yield* writeTextFile(cwd, "brand/mark.svg", "<svg>mark</svg>");
         yield* writeTextFile(cwd, "favicon.svg", "<svg>favicon</svg>");
 
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("brand/mark.svg");
+        expect(resolved).toBe(path.join(cwd, "brand", "mark.svg"));
       }),
     );
 
-    it.effect("falls back to well-known files when the t3.json iconPath does not exist", () =>
+    it.effect("falls back to well-known files when the sigma.json iconPath does not exist", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
         const cwd = yield* makeTempDir;
-        yield* writeTextFile(cwd, "t3.json", '{ "iconPath": "brand/missing.svg" }');
+        yield* writeTextFile(cwd, T3_PROJECT_FILE_NAME, '{ "iconPath": "brand/missing.svg" }');
         yield* writeTextFile(cwd, "favicon.svg", "<svg>favicon</svg>");
 
         const resolved = yield* resolver.resolvePath(cwd);
@@ -91,11 +93,11 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
       }),
     );
 
-    it.effect("ignores invalid t3.json files", () =>
+    it.effect("ignores invalid sigma.json files", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
         const cwd = yield* makeTempDir;
-        yield* writeTextFile(cwd, "t3.json", "{ not json");
+        yield* writeTextFile(cwd, T3_PROJECT_FILE_NAME, "{ not json");
         yield* writeTextFile(cwd, "favicon.svg", "<svg>favicon</svg>");
 
         const resolved = yield* resolver.resolvePath(cwd);
@@ -105,13 +107,13 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
       }),
     );
 
-    it.effect("does not resolve a t3.json iconPath outside the workspace root", () =>
+    it.effect("does not resolve a sigma.json iconPath outside the workspace root", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
         const parent = yield* makeTempDir;
         const cwd = `${parent}/app`;
         yield* writeTextFile(parent, "secret.svg", "<svg>secret</svg>");
-        yield* writeTextFile(cwd, "t3.json", '{ "iconPath": "../secret.svg" }');
+        yield* writeTextFile(cwd, T3_PROJECT_FILE_NAME, '{ "iconPath": "../secret.svg" }');
 
         const resolved = yield* resolver.resolvePath(cwd);
 
@@ -122,6 +124,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
     it.effect("resolves icon hrefs from project source files", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
         const cwd = yield* makeTempDir;
         yield* writeTextFile(cwd, "index.html", '<link rel="icon" href="/brand/logo.svg">');
         yield* writeTextFile(cwd, "public/brand/logo.svg", "<svg>brand</svg>");
@@ -129,7 +132,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(resolved).toBe(path.join(cwd, "public", "brand", "logo.svg"));
       }),
     );
 
@@ -245,6 +248,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
     it.effect("continues to later sources after an outside-root icon href", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
         const cwd = yield* makeTempDir;
         yield* writeTextFile(cwd, "index.html", '<link rel="icon" href="../../secret.svg">');
         yield* writeTextFile(cwd, "public/index.html", '<link rel="icon" href="/brand/logo.svg">');
@@ -253,7 +257,7 @@ it.layer(TestLayer)("ProjectFaviconResolverLive", (it) => {
         const resolved = yield* resolver.resolvePath(cwd);
 
         expect(resolved).not.toBeNull();
-        expect(resolved).toContain("public/brand/logo.svg");
+        expect(resolved).toBe(path.join(cwd, "public", "brand", "logo.svg"));
       }),
     );
   });
