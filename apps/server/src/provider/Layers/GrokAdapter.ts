@@ -121,6 +121,11 @@ export interface AcpAdapterProfile {
   readonly makeRuntime: typeof makeGrokAcpRuntime;
   readonly modelSupport: AcpAdapterModelSupport;
   readonly enableXAiExtensions?: boolean;
+  /** Permission requests matching this policy always require a user decision,
+   * even when the surrounding runtime mode normally auto-approves tools. */
+  readonly requiresExplicitPermission?: (
+    request: EffectAcpSchema.RequestPermissionRequest,
+  ) => boolean;
   readonly resolveModeId?: (input: {
     readonly runtimeMode: RuntimeMode;
     readonly interactionMode?: ProviderInteractionMode;
@@ -244,13 +249,13 @@ function selectPermissionOptionId(
   request: EffectAcpSchema.RequestPermissionRequest,
   decision: Exclude<ProviderApprovalDecision, "cancel">,
 ): string | undefined {
-  const kind =
+  const kinds =
     decision === "acceptForSession"
-      ? "allow_always"
+      ? ["allow_always"]
       : decision === "accept"
-        ? "allow_once"
-        : "reject_once";
-  const option = request.options.find((entry) => entry.kind === kind);
+        ? ["allow_once"]
+        : ["reject_once", "reject_always"];
+  const option = request.options.find((entry) => kinds.includes(entry.kind));
   return option?.optionId.trim() || undefined;
 }
 
@@ -789,7 +794,10 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
               mapAcpCallbackFailure(
                 Effect.gen(function* () {
                   yield* logNative(input.threadId, "session/request_permission", params);
-                  if (input.runtimeMode === "full-access") {
+                  if (
+                    input.runtimeMode === "full-access" &&
+                    profile?.requiresExplicitPermission?.(params) !== true
+                  ) {
                     const autoApprovedOptionId = selectAutoApprovedPermissionOption(params);
                     if (autoApprovedOptionId !== undefined) {
                       return {

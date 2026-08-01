@@ -5,6 +5,10 @@ import { Button } from "../ui/button";
 interface ComposerPendingApprovalActionsProps {
   requestId: ApprovalRequestId;
   isResponding: boolean;
+  actions?: ReadonlyArray<{
+    decision: Exclude<ProviderApprovalDecision, "cancel">;
+    label: string;
+  }>;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -14,8 +18,14 @@ interface ComposerPendingApprovalActionsProps {
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
   isResponding,
+  actions,
   onRespondToApproval,
 }: ComposerPendingApprovalActionsProps) {
+  const displayedActions = actions ?? [
+    { decision: "decline" as const, label: "Decline" },
+    { decision: "acceptForSession" as const, label: "Always allow this session" },
+    { decision: "accept" as const, label: "Approve once" },
+  ];
   return (
     <>
       <Button
@@ -26,30 +36,23 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
       >
         Cancel turn
       </Button>
-      <Button
-        size="sm"
-        variant="destructive-outline"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "decline")}
-      >
-        Decline
-      </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "acceptForSession")}
-      >
-        Always allow this session
-      </Button>
-      <Button
-        size="sm"
-        variant="default"
-        disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "accept")}
-      >
-        Approve once
-      </Button>
+      {displayedActions.map((action) => (
+        <Button
+          key={action.decision}
+          size="sm"
+          variant={
+            action.decision === "decline"
+              ? "destructive-outline"
+              : action.decision === "acceptForSession"
+                ? "outline"
+                : "default"
+          }
+          disabled={isResponding}
+          onClick={() => void onRespondToApproval(requestId, action.decision)}
+        >
+          {action.label}
+        </Button>
+      ))}
     </>
   );
 });

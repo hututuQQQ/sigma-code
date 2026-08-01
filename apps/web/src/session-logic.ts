@@ -3,6 +3,7 @@ import * as Arr from "effect/Array";
 import {
   ApprovalRequestId,
   isToolLifecycleItemType,
+  type ProviderApprovalDecision,
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
@@ -97,6 +98,10 @@ export interface PendingApproval {
   requestKind: "command" | "file-read" | "file-change";
   createdAt: string;
   detail?: string;
+  actions?: ReadonlyArray<{
+    decision: Exclude<ProviderApprovalDecision, "cancel">;
+    label: string;
+  }>;
 }
 
 export interface PendingUserInput {
@@ -358,6 +363,29 @@ function isStalePendingRequestFailureDetail(detail: string | undefined): boolean
   );
 }
 
+function approvalActionsFromOptions(options: unknown): PendingApproval["actions"] | undefined {
+  if (!Array.isArray(options)) return undefined;
+  const actions: NonNullable<PendingApproval["actions"]>[number][] = [];
+  const decisions = new Set<NonNullable<PendingApproval["actions"]>[number]["decision"]>();
+  for (const option of options) {
+    if (!option || typeof option !== "object" || Array.isArray(option)) continue;
+    const record = option as Record<string, unknown>;
+    const label = typeof record.name === "string" ? record.name.trim() : "";
+    const decision =
+      record.kind === "allow_once"
+        ? "accept"
+        : record.kind === "allow_always"
+          ? "acceptForSession"
+          : record.kind === "reject_once" || record.kind === "reject_always"
+            ? "decline"
+            : undefined;
+    if (!label || !decision || decisions.has(decision)) continue;
+    decisions.add(decision);
+    actions.push({ decision, label });
+  }
+  return actions.length > 0 ? actions : undefined;
+}
+
 export function derivePendingApprovals(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingApproval[] {
@@ -383,6 +411,7 @@ export function derivePendingApprovals(
           ? requestKindFromRequestType(payload.requestType)
           : null;
     const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
+    const actions = approvalActionsFromOptions(payload?.permissionOptions);
 
     if (activity.kind === "approval.requested" && requestId && requestKind) {
       openByRequestId.set(requestId, {
@@ -390,6 +419,7 @@ export function derivePendingApprovals(
         requestKind,
         createdAt: activity.createdAt,
         ...(detail ? { detail } : {}),
+        ...(actions ? { actions } : {}),
       });
       continue;
     }

@@ -117,6 +117,39 @@ describe("derivePendingApprovals", () => {
     ]);
   });
 
+  it("derives labels and decisions from the permission options actually offered", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "checkpoint-recovery-open",
+        kind: "approval.requested",
+        summary: "File-change approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-recovery",
+          requestKind: "file-change",
+          detail: "Recover interrupted workspace changes",
+          permissionOptions: [
+            { optionId: "keep", name: "Keep current changes", kind: "allow_once" },
+            { optionId: "restore", name: "Restore pre-interruption state", kind: "reject_once" },
+          ],
+        },
+      }),
+    ];
+
+    expect(derivePendingApprovals(activities)).toEqual([
+      {
+        requestId: "req-recovery",
+        requestKind: "file-change",
+        createdAt: "2026-02-23T00:00:00.000Z",
+        detail: "Recover interrupted workspace changes",
+        actions: [
+          { decision: "accept", label: "Keep current changes" },
+          { decision: "decline", label: "Restore pre-interruption state" },
+        ],
+      },
+    ]);
+  });
+
   it("clears stale pending approvals when provider reports unknown pending request", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

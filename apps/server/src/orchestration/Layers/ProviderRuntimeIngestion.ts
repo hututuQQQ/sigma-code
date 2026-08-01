@@ -307,6 +307,39 @@ function requestKindFromCanonicalRequestType(
   }
 }
 
+type PermissionOptionKind = "allow_once" | "allow_always" | "reject_once" | "reject_always";
+
+function isPermissionOptionKind(value: unknown): value is PermissionOptionKind {
+  return (
+    value === "allow_once" ||
+    value === "allow_always" ||
+    value === "reject_once" ||
+    value === "reject_always"
+  );
+}
+
+function permissionOptionsFromArgs(args: unknown):
+  | ReadonlyArray<{
+      optionId: string;
+      name: string;
+      kind: PermissionOptionKind;
+    }>
+  | undefined {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return undefined;
+  const source = (args as Record<string, unknown>).options;
+  if (!Array.isArray(source)) return undefined;
+  const options = source.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const option = value as Record<string, unknown>;
+    const optionId = typeof option.optionId === "string" ? option.optionId.trim() : "";
+    const name = typeof option.name === "string" ? option.name.trim() : "";
+    const kind = option.kind;
+    if (!optionId || !name || !isPermissionOptionKind(kind)) return [];
+    return [{ optionId, name, kind }];
+  });
+  return options.length > 0 ? options : undefined;
+}
+
 export function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
   taskTitle?: string,
@@ -323,6 +356,7 @@ export function runtimeEventToActivities(
         return [];
       }
       const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
+      const permissionOptions = permissionOptionsFromArgs(event.payload.args);
       return [
         {
           id: event.eventId,
@@ -342,6 +376,7 @@ export function runtimeEventToActivities(
             ...(requestKind ? { requestKind } : {}),
             requestType: event.payload.requestType,
             ...(event.payload.detail ? { detail: event.payload.detail } : {}),
+            ...(permissionOptions ? { permissionOptions } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

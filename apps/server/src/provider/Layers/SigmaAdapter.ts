@@ -43,6 +43,15 @@ export function sigmaPromptFailure(
   });
 }
 
+export function sigmaPermissionRequiresExplicitDecision(
+  request: EffectAcpSchema.RequestPermissionRequest,
+): boolean {
+  const meta = request._meta;
+  return Boolean(
+    meta && typeof meta === "object" && meta["sigma.permission.requiresExplicitDecision"] === true,
+  );
+}
+
 const sigmaPrompt = Effect.fn("SigmaAdapter.sigmaPrompt")(function* (input: {
   readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
   readonly sessionId: string;
@@ -83,6 +92,7 @@ const SIGMA_ACP_PROFILE: AcpAdapterProfile = {
     applySelection: applySigmaAcpModelSelection,
   },
   enableXAiExtensions: false,
+  requiresExplicitPermission: sigmaPermissionRequiresExplicitDecision,
   applyMode: ({ runtime, sessionId, interactionMode }) =>
     runtime
       .request("session/set_mode", {
