@@ -30,4 +30,33 @@ describe("runtimeEventToActivities approval details", () => {
     expect(activity?.kind).toBe("approval.requested");
     expect((activity?.payload as Record<string, unknown> | undefined)?.detail).toBe(detail);
   });
+
+  it("preserves provider permission options for client-specific actions", () => {
+    const args = {
+      rawInput: { command: "must-not-be-projected" },
+      options: [
+        { optionId: "keep", name: "Keep current changes", kind: "allow_once" },
+        { optionId: "restore", name: "Restore state", kind: "reject_once" },
+      ],
+    };
+    const event = {
+      type: "request.opened",
+      eventId: EventId.make("evt-recovery-opened"),
+      provider: ProviderDriverKind.make("sigma"),
+      createdAt: "2026-07-18T00:00:00.000Z",
+      threadId: ThreadId.make("thread-1"),
+      requestId: RuntimeRequestId.make("approval-recovery"),
+      payload: {
+        requestType: "file_change_approval",
+        detail: "Recover interrupted workspace changes",
+        args,
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    const [activity] = runtimeEventToActivities(event);
+
+    const payload = activity?.payload as Record<string, unknown> | undefined;
+    expect(payload?.permissionOptions).toEqual(args.options);
+    expect(payload?.args).toBeUndefined();
+  });
 });

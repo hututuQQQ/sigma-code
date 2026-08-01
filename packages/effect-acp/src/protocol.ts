@@ -75,6 +75,15 @@ const decodeSessionUpdate = Schema.decodeUnknownEffect(AcpSchema.SessionNotifica
 const decodeElicitationComplete = Schema.decodeUnknownEffect(
   AcpSchema.ElicitationCompleteNotification,
 );
+const JsonRpcNotification = Schema.Struct({
+  jsonrpc: Schema.Literal("2.0"),
+  method: Schema.String,
+  params: Schema.Unknown,
+});
+type JsonRpcNotification = typeof JsonRpcNotification.Type;
+const encodeJsonRpcNotification = Schema.encodeUnknownSync(
+  Schema.fromJsonString(JsonRpcNotification),
+);
 const parserFactory = RpcSerialization.ndJsonRpc();
 
 export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(function* (
@@ -519,13 +528,26 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
     method: string,
     payload: unknown,
   ) {
-    yield* offerOutgoing({
-      _tag: "Request",
-      id: "",
-      tag: method,
-      payload,
-      headers: [],
+    const notification: JsonRpcNotification = {
+      jsonrpc: "2.0",
+      method,
+      params: payload,
+    };
+    yield* logProtocol({
+      direction: "outgoing",
+      stage: "decoded",
+      payload: notification,
     });
+    const encoded = yield* Effect.try({
+      try: () => `${encodeJsonRpcNotification(notification)}\n`,
+      catch: (cause) => AcpError.AcpProtocolParseError.fromEncodingError(method, undefined, cause),
+    });
+    yield* logProtocol({
+      direction: "outgoing",
+      stage: "raw",
+      payload: encoded,
+    });
+    yield* Queue.offer(outgoing, encoded).pipe(Effect.asVoid);
   });
 
   const sendRequest = Effect.fn("sendRequest")(function* (method: string, payload: unknown) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
-import { sigmaPromptFailure } from "./SigmaAdapter.ts";
+import { sigmaPermissionRequiresExplicitDecision, sigmaPromptFailure } from "./SigmaAdapter.ts";
 
 function response(outcome: string, message?: string): EffectAcpSchema.PromptResponse {
   return {
@@ -34,5 +34,32 @@ describe("SigmaAdapter prompt settlement", () => {
     );
     expect(sigmaPromptFailure(response("completed", "Done."))).toBeUndefined();
     expect(sigmaPromptFailure({ stopReason: "refusal" })).toBeUndefined();
+  });
+});
+
+describe("SigmaAdapter permission policy", () => {
+  const request = (meta?: Record<string, unknown>): EffectAcpSchema.RequestPermissionRequest => ({
+    sessionId: "session-1",
+    toolCall: { toolCallId: "checkpoint-1" },
+    options: [{ optionId: "keep", name: "Keep", kind: "allow_once" }],
+    ...(meta ? { _meta: meta } : {}),
+  });
+
+  it("requires an explicit decision only when the permission request declares it", () => {
+    expect(
+      sigmaPermissionRequiresExplicitDecision(
+        request({
+          "sigma.permission.requiresExplicitDecision": true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      sigmaPermissionRequiresExplicitDecision(
+        request({
+          "sigma.permission.requiresExplicitDecision": false,
+        }),
+      ),
+    ).toBe(false);
+    expect(sigmaPermissionRequiresExplicitDecision(request())).toBe(false);
   });
 });
