@@ -337,6 +337,95 @@ describe("AcpRuntimeModel", () => {
     ]);
   });
 
+  it("projects ACP usage updates into canonical token usage", () => {
+    const result = parseSessionUpdateEvent({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "usage_update",
+        size: 200_000,
+        used: 31_251,
+        _meta: {
+          "sigma.inputTokens": 30_000,
+          "sigma.cachedInputTokens": 20_000,
+          "sigma.outputTokens": 1_251,
+          "sigma.reasoningOutputTokens": 800,
+          "sigma.durationMs": 43_567,
+          "sigma.compactsAutomatically": true,
+        },
+      },
+    } satisfies EffectAcpSchema.SessionNotification);
+
+    expect(result.events).toEqual([
+      {
+        _tag: "UsageUpdated",
+        usage: {
+          usedTokens: 31_251,
+          maxTokens: 200_000,
+          inputTokens: 30_000,
+          cachedInputTokens: 20_000,
+          outputTokens: 1_251,
+          reasoningOutputTokens: 800,
+          lastUsedTokens: 31_251,
+          lastInputTokens: 30_000,
+          lastCachedInputTokens: 20_000,
+          lastOutputTokens: 1_251,
+          lastReasoningOutputTokens: 800,
+          durationMs: 43_567,
+          compactsAutomatically: true,
+        },
+        rawPayload: {
+          sessionId: "session-1",
+          update: {
+            sessionUpdate: "usage_update",
+            size: 200_000,
+            used: 31_251,
+            _meta: {
+              "sigma.inputTokens": 30_000,
+              "sigma.cachedInputTokens": 20_000,
+              "sigma.outputTokens": 1_251,
+              "sigma.reasoningOutputTokens": 800,
+              "sigma.durationMs": 43_567,
+              "sigma.compactsAutomatically": true,
+            },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("preserves Sigma lifecycle metadata as typed ACP runtime events", () => {
+    const notification = {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "child:child-1",
+        title: "Agent child-1",
+        status: "in_progress",
+        _meta: {
+          "sigma.event": "child.message",
+          "sigma.payload": {
+            childId: "child-1",
+            payload: { kind: "started", sessionId: "child-session-1" },
+          },
+        },
+      },
+    } satisfies EffectAcpSchema.SessionNotification;
+
+    expect(parseSessionUpdateEvent(notification).events).toEqual([
+      {
+        _tag: "SigmaRuntimeEvent",
+        event: {
+          eventType: "child.message",
+          payload: {
+            childId: "child-1",
+            payload: { kind: "started", sessionId: "child-session-1" },
+          },
+        },
+        rawPayload: notification,
+      },
+    ]);
+  });
+
   it("keeps permission request parsing compatible with loose extension payloads", () => {
     const request = parsePermissionRequest({
       sessionId: "session-1",

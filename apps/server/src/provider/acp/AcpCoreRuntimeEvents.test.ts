@@ -7,6 +7,7 @@ import {
   makeAcpPlanUpdatedEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
+  makeAcpSigmaRuntimeEvent,
   makeAcpToolCallEvent,
 } from "./AcpCoreRuntimeEvents.ts";
 
@@ -151,6 +152,69 @@ describe("AcpCoreRuntimeEvents", () => {
         itemType: "assistant_message",
         status: "inProgress",
       },
+    });
+  });
+
+  it("maps Sigma child, hook, and MCP lifecycle updates to canonical events", () => {
+    const stamp = { eventId: "event-1" as never, createdAt: "2026-03-27T00:00:00.000Z" };
+    const common = {
+      stamp,
+      provider: ProviderDriverKind.make("sigma"),
+      threadId: "thread-1" as never,
+      turnId: TurnId.make("turn-1"),
+      rawPayload: { sessionId: "session-1" },
+    };
+
+    expect(
+      makeAcpSigmaRuntimeEvent({
+        ...common,
+        event: {
+          eventType: "child.spawned",
+          payload: {
+            childId: "child-1",
+            payload: { instruction: "Inspect tests", intent: "analyze" },
+          },
+        },
+      }),
+    ).toMatchObject({
+      type: "task.started",
+      payload: {
+        taskId: "child-1",
+        description: "Inspect tests",
+        taskType: "analyze",
+      },
+    });
+
+    expect(
+      makeAcpSigmaRuntimeEvent({
+        ...common,
+        event: {
+          eventType: "hook.completed",
+          payload: {
+            hookId: "lint",
+            event: "post_tool",
+            durationMs: 12,
+            outcome: { status: "allowed" },
+          },
+        },
+      }),
+    ).toMatchObject({
+      type: "hook.completed",
+      payload: { hookId: "lint", outcome: "success", output: "allowed (12ms)" },
+    });
+
+    expect(
+      makeAcpSigmaRuntimeEvent({
+        ...common,
+        turnId: undefined,
+        event: {
+          eventType: "mcp.status.updated",
+          payload: { status: { name: "sigma-code", status: "connected", transport: "http" } },
+        },
+      }),
+    ).toMatchObject({
+      type: "mcp.status.updated",
+      payload: { status: { name: "sigma-code", status: "connected" } },
     });
   });
 });
