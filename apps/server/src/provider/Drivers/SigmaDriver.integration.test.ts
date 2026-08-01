@@ -109,6 +109,7 @@ async function makeMockSigmaBinary(
       'set "SIGMACODE_ACP_EMIT_THOUGHT=1"',
       'set "SIGMACODE_ACP_EMIT_PLAN=1"',
       'set "SIGMACODE_ACP_HANG_PROMPT_TEXT=cancel me"',
+      `> "${requestLogPath}.state-home" <nul set /p "=%SIGMA_STATE_HOME%"`,
       `"${process.execPath}" "${mockAgentPath}" %*`,
       "",
     ].join("\r\n");
@@ -143,6 +144,7 @@ async function makeMockSigmaBinary(
     "export SIGMACODE_ACP_EMIT_THOUGHT=1",
     "export SIGMACODE_ACP_EMIT_PLAN=1",
     'export SIGMACODE_ACP_HANG_PROMPT_TEXT="cancel me"',
+    `printf '%s' "$SIGMA_STATE_HOME" > ${JSON.stringify(`${requestLogPath}.state-home`)}`,
     `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(mockAgentPath)} "$@"`,
     "",
   ].join("\n");
@@ -460,6 +462,19 @@ describe("SigmaDriver integration", () => {
         assert.match(NodePath.basename(probeCwd), /^sigma-code-provider-probe-/u);
         const relativeToTemp = NodePath.relative(NodeOS.tmpdir(), probeCwd);
         assert.isFalse(relativeToTemp.startsWith("..") || NodePath.isAbsolute(relativeToTemp));
+        const probeStateHome = yield* Effect.promise(() =>
+          NodeFSP.readFile(`${requestLogPath}.state-home`, "utf8"),
+        );
+        assert.match(NodePath.basename(probeStateHome), /^sigma-code-provider-state-/u);
+        assert.notStrictEqual(probeStateHome, probeCwd);
+        assert.isFalse(
+          yield* Effect.promise(() =>
+            NodeFSP.access(probeStateHome).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        );
       }),
     );
   });

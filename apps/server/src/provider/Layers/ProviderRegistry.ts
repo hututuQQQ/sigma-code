@@ -463,10 +463,29 @@ export const ProviderRegistryLive = Layer.effect(
 
     const refreshAll = Effect.fn("refreshAll")(function* () {
       const sources = yield* getLiveSources;
-      return yield* Effect.forEach(sources, (source) => refreshOneSource(source), {
-        concurrency: "unbounded",
-        discard: true,
-      }).pipe(Effect.andThen(Ref.get(providersRef)));
+      return yield* Effect.forEach(
+        sources,
+        (source) =>
+          refreshOneSource(source).pipe(
+            Effect.catchCause((cause) => {
+              if (Cause.hasInterruptsOnly(cause)) {
+                return Effect.interrupt;
+              }
+              return Effect.logError(
+                "provider refresh failed; preserving the cached provider and continuing",
+                {
+                  instanceId: source.instanceId,
+                  driver: source.driverKind,
+                  cause: Cause.pretty(cause),
+                },
+              );
+            }),
+          ),
+        {
+          concurrency: "unbounded",
+          discard: true,
+        },
+      ).pipe(Effect.andThen(Ref.get(providersRef)));
     });
 
     const refresh = Effect.fn("refresh")(function* (provider?: ProviderDriverKind) {

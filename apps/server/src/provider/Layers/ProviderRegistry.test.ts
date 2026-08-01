@@ -1262,6 +1262,101 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }),
       );
 
+      it.effect("continues a global refresh when one provider probe defects", () =>
+        Effect.gen(function* () {
+          const codexDriver = ProviderDriverKind.make("codex");
+          const sigmaDriver = ProviderDriverKind.make("sigma");
+          const codexInstanceId = ProviderInstanceId.make("codex");
+          const sigmaInstanceId = ProviderInstanceId.make("sigma");
+          const provider = (
+            instanceId: ProviderInstanceId,
+            driver: ProviderDriverKind,
+            checkedAt: string,
+          ): ServerProvider => ({
+            instanceId,
+            driver,
+            status: "ready",
+            enabled: true,
+            installed: true,
+            auth: { status: "authenticated" },
+            checkedAt,
+            version: "1.0.0",
+            models: [],
+            slashCommands: [],
+            skills: [],
+          });
+          const cachedCodex = provider(codexInstanceId, codexDriver, "2026-04-29T10:00:00.000Z");
+          const cachedSigma = provider(sigmaInstanceId, sigmaDriver, "2026-04-29T10:01:00.000Z");
+          const refreshedSigma = provider(sigmaInstanceId, sigmaDriver, "2026-04-29T10:02:00.000Z");
+          const instance = (
+            snapshot: ServerProvider,
+            refresh: ProviderInstance["snapshot"]["refresh"],
+          ): ProviderInstance => ({
+            instanceId: snapshot.instanceId,
+            driverKind: snapshot.driver,
+            continuationIdentity: {
+              driverKind: snapshot.driver,
+              continuationKey: `${snapshot.driver}:instance:${snapshot.instanceId}`,
+            },
+            displayName: undefined,
+            enabled: true,
+            snapshot: {
+              maintenanceCapabilities: makeManualOnlyProviderMaintenanceCapabilities({
+                provider: snapshot.driver,
+                packageName: null,
+              }),
+              getSnapshot: Effect.succeed(snapshot),
+              refresh,
+              streamChanges: Stream.empty,
+            },
+            adapter: {} as ProviderInstance["adapter"],
+            textGeneration: {} as ProviderInstance["textGeneration"],
+          });
+          const instances = [
+            instance(cachedCodex, Effect.die(new Error("simulated codex probe defect"))),
+            instance(cachedSigma, Effect.succeed(refreshedSigma)),
+          ];
+          const changes = yield* PubSub.unbounded<void>();
+          const instanceRegistryLayer = Layer.succeed(
+            ProviderInstanceRegistry.ProviderInstanceRegistry,
+            {
+              getInstance: (instanceId) =>
+                Effect.succeed(instances.find((candidate) => candidate.instanceId === instanceId)),
+              listInstances: Effect.succeed(instances),
+              listUnavailable: Effect.succeed([]),
+              streamChanges: Stream.empty,
+              subscribeChanges: PubSub.subscribe(changes),
+            },
+          );
+          const scope = yield* Scope.make();
+          yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+          const runtimeServices = yield* Layer.build(
+            ProviderRegistryLive.pipe(
+              Layer.provideMerge(instanceRegistryLayer),
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), {
+                  prefix: "t3-provider-registry-partial-refresh-",
+                }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ).pipe(Scope.provide(scope));
+
+          yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry.ProviderRegistry;
+            const refreshed = yield* registry.refresh();
+            assert.strictEqual(
+              refreshed.find((item) => item.instanceId === codexInstanceId)?.checkedAt,
+              cachedCodex.checkedAt,
+            );
+            assert.strictEqual(
+              refreshed.find((item) => item.instanceId === sigmaInstanceId)?.checkedAt,
+              refreshedSigma.checkedAt,
+            );
+          }).pipe(Effect.provide(runtimeServices));
+        }),
+      );
+
       it.effect("keeps consuming registry changes after one sync fails", () =>
         Effect.gen(function* () {
           const codexDriver = ProviderDriverKind.make("codex");
