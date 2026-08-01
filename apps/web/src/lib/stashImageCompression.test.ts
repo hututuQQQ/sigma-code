@@ -118,9 +118,11 @@ describe("compressImageForStash", () => {
   });
 
   it("reports too-large when even the smallest encoding overflows the budget", async () => {
-    const { close } = stubCanvasPipeline(() => 8_000_000);
+    // A deliberately tiny budget exercises every quality and fallback step
+    // without allocating and base64-encoding hundreds of megabytes in CI.
+    const { close } = stubCanvasPipeline(() => 1_024);
 
-    const result = await compressImageForStash(makeFile(9_000_000));
+    const result = await compressImageForStash(makeFile(2_048), 100);
 
     expect(result).toEqual({ ok: false, reason: "too-large" });
     // The bitmap must still be released on the give-up path.
