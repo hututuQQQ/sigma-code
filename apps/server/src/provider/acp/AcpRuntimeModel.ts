@@ -74,6 +74,37 @@ export interface AcpPlanUpdate {
   }>;
 }
 
+export interface AcpUsageUpdate {
+  readonly usedTokens: number;
+  readonly maxTokens?: number;
+  readonly totalProcessedTokens?: number;
+  readonly inputTokens?: number;
+  readonly cachedInputTokens?: number;
+  readonly outputTokens?: number;
+  readonly reasoningOutputTokens?: number;
+  readonly lastUsedTokens?: number;
+  readonly lastInputTokens?: number;
+  readonly lastCachedInputTokens?: number;
+  readonly lastOutputTokens?: number;
+  readonly lastReasoningOutputTokens?: number;
+  readonly durationMs?: number;
+  readonly compactsAutomatically?: boolean;
+}
+
+export type AcpSigmaRuntimeEventType =
+  | "child.spawned"
+  | "child.message"
+  | "child.completed"
+  | "hook.started"
+  | "hook.completed"
+  | "hook.failed"
+  | "mcp.status.updated";
+
+export interface AcpSigmaRuntimeEvent {
+  readonly eventType: AcpSigmaRuntimeEventType;
+  readonly payload: Record<string, unknown>;
+}
+
 export interface AcpPermissionRequest {
   readonly kind: string | "unknown";
   readonly detail?: string;
@@ -108,6 +139,16 @@ export type AcpParsedSessionEvent =
       readonly itemId?: string;
       readonly streamKind: "assistant_text" | "reasoning_text";
       readonly text: string;
+      readonly rawPayload: unknown;
+    }
+  | {
+      readonly _tag: "UsageUpdated";
+      readonly usage: AcpUsageUpdate;
+      readonly rawPayload: unknown;
+    }
+  | {
+      readonly _tag: "SigmaRuntimeEvent";
+      readonly event: AcpSigmaRuntimeEvent;
       readonly rawPayload: unknown;
     };
 
@@ -288,6 +329,75 @@ function extractTextContentFromToolCallContent(
 
 function normalizeToolKind(kind: unknown): string | undefined {
   return typeof kind === "string" && kind.trim().length > 0 ? kind.trim() : undefined;
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.trunc(value)
+    : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const normalized = nonNegativeInteger(value);
+  return normalized !== undefined && normalized > 0 ? normalized : undefined;
+}
+
+function parseUsageUpdate(
+  update: Extract<EffectAcpSchema.SessionNotification["update"], { sessionUpdate: "usage_update" }>,
+): AcpUsageUpdate {
+  const meta = isRecord(update._meta) ? update._meta : {};
+  const usedTokens = nonNegativeInteger(update.used) ?? 0;
+  const maxTokens = positiveInteger(update.size);
+  const totalProcessedTokens = nonNegativeInteger(meta["sigma.totalProcessedTokens"]);
+  const inputTokens = nonNegativeInteger(meta["sigma.inputTokens"]);
+  const cachedInputTokens = nonNegativeInteger(meta["sigma.cachedInputTokens"]);
+  const outputTokens = nonNegativeInteger(meta["sigma.outputTokens"]);
+  const reasoningOutputTokens = nonNegativeInteger(meta["sigma.reasoningOutputTokens"]);
+  const durationMs = nonNegativeInteger(meta["sigma.durationMs"]);
+  const compactsAutomatically =
+    typeof meta["sigma.compactsAutomatically"] === "boolean"
+      ? meta["sigma.compactsAutomatically"]
+      : undefined;
+  return {
+    usedTokens,
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    ...(totalProcessedTokens !== undefined ? { totalProcessedTokens } : {}),
+    ...(inputTokens !== undefined ? { inputTokens, lastInputTokens: inputTokens } : {}),
+    ...(cachedInputTokens !== undefined
+      ? { cachedInputTokens, lastCachedInputTokens: cachedInputTokens }
+      : {}),
+    ...(outputTokens !== undefined ? { outputTokens, lastOutputTokens: outputTokens } : {}),
+    ...(reasoningOutputTokens !== undefined
+      ? { reasoningOutputTokens, lastReasoningOutputTokens: reasoningOutputTokens }
+      : {}),
+    lastUsedTokens: usedTokens,
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(compactsAutomatically !== undefined ? { compactsAutomatically } : {}),
+  };
+}
+
+const sigmaRuntimeEventTypes = new Set<AcpSigmaRuntimeEventType>([
+  "child.spawned",
+  "child.message",
+  "child.completed",
+  "hook.started",
+  "hook.completed",
+  "hook.failed",
+  "mcp.status.updated",
+]);
+
+function parseSigmaRuntimeEvent(update: AcpToolCallUpdate): AcpSigmaRuntimeEvent | undefined {
+  const meta = isRecord(update._meta) ? update._meta : undefined;
+  const eventType = meta?.["sigma.event"];
+  const payload = meta?.["sigma.payload"];
+  if (
+    typeof eventType !== "string" ||
+    !sigmaRuntimeEventTypes.has(eventType as AcpSigmaRuntimeEventType) ||
+    !isRecord(payload)
+  ) {
+    return undefined;
+  }
+  return { eventType: eventType as AcpSigmaRuntimeEventType, payload };
 }
 
 function canonicalItemTypeFromAcpToolKind(kind: string | undefined): ToolLifecycleItemType {
@@ -542,6 +652,15 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
       break;
     }
     case "tool_call": {
+      const sigmaRuntimeEvent = parseSigmaRuntimeEvent(upd);
+      if (sigmaRuntimeEvent) {
+        events.push({
+          _tag: "SigmaRuntimeEvent",
+          event: sigmaRuntimeEvent,
+          rawPayload: params,
+        });
+        break;
+      }
       const toolCall = parseTypedToolCallState(upd, {
         fallbackStatus: "pending",
       });
@@ -555,6 +674,15 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
       break;
     }
     case "tool_call_update": {
+      const sigmaRuntimeEvent = parseSigmaRuntimeEvent(upd);
+      if (sigmaRuntimeEvent) {
+        events.push({
+          _tag: "SigmaRuntimeEvent",
+          event: sigmaRuntimeEvent,
+          rawPayload: params,
+        });
+        break;
+      }
       const toolCall = parseTypedToolCallState(upd);
       if (toolCall) {
         events.push({
@@ -585,6 +713,14 @@ export function parseSessionUpdateEvent(params: EffectAcpSchema.SessionNotificat
           rawPayload: params,
         });
       }
+      break;
+    }
+    case "usage_update": {
+      events.push({
+        _tag: "UsageUpdated",
+        usage: parseUsageUpdate(upd),
+        rawPayload: params,
+      });
       break;
     }
     default:

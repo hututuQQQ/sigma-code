@@ -1,8 +1,13 @@
 # Quick start
 
-Sigma Code is maintained from source until a Sigma-owned release repository and
-package registry are configured. Do not install or run the upstream `t3`
-package for a Sigma Code environment.
+For Windows x64, download `Sigma-Code-<version>-x64.exe` and its SHA-256
+sidecar from [Sigma Releases](https://github.com/hututuQQQ/sigma/releases).
+Verify the checksum, then run the installer. It contains both the Sigma Code UI
+and the matching verified Sigma Runtime, so no separate Node.js, `sigma`, or
+upstream `t3` installation is required. The installer is currently an unsigned
+preview and may trigger Windows security warnings.
+
+For source development:
 
 ```bash
 # Install the pinned workspace dependencies
@@ -20,7 +25,7 @@ SIGMACODE_DEV_INSTANCE=feature-xyz vp run dev:desktop
 # Production web/server build
 vp run build
 
-# Unsigned Windows desktop installer
+# Unsigned Windows desktop installer with verified Runtime
 SIGMACODE_DESKTOP_SIGMA_RUNTIME=/path/to/sigma/.artifacts/agent-cli-win32-x64 \
   vp run dist:desktop:win:x64
 ```
@@ -39,3 +44,5 @@ node apps/server/dist/bin.mjs serve
 The public executable name in packaged distributions is `sigma-code`.
 Desktop artifact builds require the verified portable Runtime directory
 produced by `pnpm verify:package:agent-cli:windows` in the Sigma repository.
+Official builds also set `SIGMACODE_DESKTOP_UPDATE_REPOSITORY=hututuQQQ/sigma`
+and require the UI and Runtime versions to match the release tag exactly.

@@ -12,10 +12,15 @@ The original T3 Code copyright and MIT license are preserved in
 
 ## Current status
 
-This repository supports local development and unsigned desktop artifacts. No
-Sigma Code release repository, hosted Connect service, signing identity, or
-automatic-update channel is configured. Cloud features and updates therefore
-stay disabled by default.
+Official Windows x64 installers are published in the
+[Sigma Releases](https://github.com/hututuQQQ/sigma/releases). Each installer
+contains this desktop UI and the exact verified Sigma Runtime from the same
+release, so a separate Node.js or Agent CLI installation is not required.
+Release builds use that Sigma repository as their automatic-update channel.
+
+Windows installers remain unsigned previews until a trusted signing identity is
+available, so SmartScreen or Smart App Control may warn or block them. A hosted
+Connect service is not configured, and cloud features stay disabled by default.
 
 The retained upstream marketing site is reference source only and is disabled
 from development, preview, build, and deployment in this downstream.

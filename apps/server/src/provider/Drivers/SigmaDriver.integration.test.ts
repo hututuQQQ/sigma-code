@@ -23,6 +23,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import { ServerConfig } from "../../config.ts";
+import { attachmentRelativePath } from "../../attachmentStore.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { BUNDLED_SIGMA_BINARY_ENV } from "../acp/SigmaAcpSupport.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
@@ -63,7 +64,7 @@ const mockModelsList = JSON.stringify({
       contextWindowTokens: 400_000,
       maxOutputTokens: 128_000,
       reasoning: true,
-      imageInput: false,
+      imageInput: true,
       billingModes: ["subscription"],
       activeBillingMode: null,
       isRecommended: true,
@@ -237,6 +238,19 @@ describe("SigmaDriver integration", () => {
           assert.isAbove(providerSnapshot.models.length, 0);
 
           const threadId = ThreadId.make("sigma-driver-contract-thread");
+          const { attachmentsDir } = yield* ServerConfig;
+          const attachment = {
+            type: "image" as const,
+            id: "sigma-driver-contract-thread-00000000-0000-4000-8000-000000000001",
+            name: "reference.png",
+            mimeType: "image/png",
+            sizeBytes: 4,
+          };
+          const attachmentPath = NodePath.join(attachmentsDir, attachmentRelativePath(attachment));
+          yield* Effect.promise(async () => {
+            await NodeFSP.mkdir(NodePath.dirname(attachmentPath), { recursive: true });
+            await NodeFSP.writeFile(attachmentPath, Uint8Array.from([1, 2, 3, 4]));
+          });
           const events: ProviderRuntimeEvent[] = [];
           const eventsFiber = yield* Stream.runForEach(instance.adapter.streamEvents, (event) =>
             Effect.sync(() => {
@@ -263,7 +277,7 @@ describe("SigmaDriver integration", () => {
             .sendTurn({
               threadId,
               input: "exercise Sigma ACP",
-              attachments: [],
+              attachments: [attachment],
               interactionMode: "plan",
             })
             .pipe(Effect.forkChild);
@@ -326,6 +340,10 @@ describe("SigmaDriver integration", () => {
               ),
           );
 
+          const beforeRollback = yield* instance.adapter.readThread(threadId);
+          const rolledBack = yield* instance.adapter.rollbackThread(threadId, 1);
+          assert.strictEqual(rolledBack.turns.length, beforeRollback.turns.length - 1);
+
           const beforeCancelledTurn = events.length;
           const cancelledTurnFiber = yield* instance.adapter
             .sendTurn({ threadId, input: "cancel me", attachments: [] })
@@ -372,6 +390,9 @@ describe("SigmaDriver integration", () => {
           assert.include(requestLog, '"method":"session/set_config_option"');
           assert.include(requestLog, '"value":"composer-2"');
           assert.include(requestLog, '"method":"_sigma/steer"');
+          assert.include(requestLog, '"method":"_sigma/rollback"');
+          assert.include(requestLog, '"type":"image"');
+          assert.include(requestLog, '"data":"AQIDBA=="');
           assert.include(requestLog, '"method":"session/load"');
           assert.include(requestLog, '"method":"_sigma/health"');
           assert.include(requestLog, '"method":"session/close"');

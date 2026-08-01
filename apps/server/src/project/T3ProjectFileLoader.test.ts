@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, describe, expect } from "@effect/vitest";
+import { T3_PROJECT_FILE_NAME } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -23,12 +24,14 @@ const makeTempDir = Effect.gen(function* () {
 const writeProjectFile = Effect.fn("writeProjectFile")(function* (cwd: string, contents: string) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  yield* fileSystem.writeFileString(path.join(cwd, "t3.json"), contents).pipe(Effect.orDie);
+  yield* fileSystem
+    .writeFileString(path.join(cwd, T3_PROJECT_FILE_NAME), contents)
+    .pipe(Effect.orDie);
 });
 
 it.layer(TestLayer)("T3ProjectFileLoader", (it) => {
   describe("load", () => {
-    it.effect("loads and decodes a valid t3.json", () =>
+    it.effect("loads and decodes a valid sigma.json", () =>
       Effect.gen(function* () {
         const loader = yield* T3ProjectFileLoader.T3ProjectFileLoader;
         const cwd = yield* makeTempDir;
@@ -51,7 +54,7 @@ it.layer(TestLayer)("T3ProjectFileLoader", (it) => {
       }),
     );
 
-    it.effect("returns none when t3.json is missing", () =>
+    it.effect("returns none when sigma.json is missing", () =>
       Effect.gen(function* () {
         const loader = yield* T3ProjectFileLoader.T3ProjectFileLoader;
         const cwd = yield* makeTempDir;

@@ -870,7 +870,10 @@ it.live("reverts to an earlier checkpoint and trims checkpoint projections + git
         true,
       );
       assert.equal(
-        NodeFS.readFileSync(NodePath.join(harness.workspaceDir, "README.md"), "utf8"),
+        NodeFS.readFileSync(NodePath.join(harness.workspaceDir, "README.md"), "utf8").replaceAll(
+          "\r\n",
+          "\n",
+        ),
         "v2\n",
       );
       assert.equal(

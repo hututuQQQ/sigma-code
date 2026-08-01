@@ -1,6 +1,7 @@
 import {
   type ModelCapabilities,
   type ServerProviderModel,
+  type ServerProviderSkill,
   type SigmaSettings,
 } from "@t3tools/contracts";
 import { causeErrorTag } from "@t3tools/shared/observability";
@@ -59,6 +60,40 @@ const FALLBACK_SIGMA_MODELS: ReadonlyArray<ServerProviderModel> = [
 ];
 const VERSION_PROBE_TIMEOUT_MS = 15_000;
 const ACP_PROBE_TIMEOUT_MS = 20_000;
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function nonempty(value: unknown): string | undefined {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || undefined;
+}
+
+export function sigmaSkillsFromCapabilities(value: unknown): ReadonlyArray<ServerProviderSkill> {
+  const rawSkills = record(value);
+  const skills = Array.isArray(rawSkills?.skills) ? rawSkills.skills : [];
+  const byName = new Map<string, ServerProviderSkill>();
+  for (const candidate of skills) {
+    const skill = record(candidate);
+    const name = nonempty(skill?.name);
+    const path = nonempty(skill?.path);
+    if (!name || !path) continue;
+    const description = nonempty(skill?.description);
+    const scope =
+      skill?.source === "home" || skill?.source === "workspace" ? skill.source : undefined;
+    byName.set(name, {
+      name,
+      path,
+      enabled: true,
+      ...(description ? { description, shortDescription: description } : {}),
+      ...(scope ? { scope } : {}),
+    });
+  }
+  return [...byName.values()];
+}
 
 function modelsFromSettings(
   customModels: ReadonlyArray<string> | undefined,
@@ -137,11 +172,12 @@ const probeSigmaAcp = (settings: SigmaSettings, environment: NodeJS.ProcessEnv) 
     const started = yield* runtime.start();
     return yield* Effect.gen(function* () {
       yield* runtime.request("_sigma/health", {});
+      const capabilities = yield* runtime.request("_sigma/capabilities", { cwd: probeCwd });
       const currentModel = started.sessionSetupResult.configOptions?.find(
         (option) => option.category === "model",
       )?.currentValue;
       const reasoning = sigmaReasoningEffortFromSessionSetup(started.sessionSetupResult);
-      return sigmaModelsFromSessionSetup(started.sessionSetupResult).map(
+      const models = sigmaModelsFromSessionSetup(started.sessionSetupResult).map(
         (model): ServerProviderModel => ({
           slug: model.id,
           name: model.name,
@@ -160,6 +196,7 @@ const probeSigmaAcp = (settings: SigmaSettings, environment: NodeJS.ProcessEnv) 
               : EMPTY_CAPABILITIES,
         }),
       );
+      return { models, skills: sigmaSkillsFromCapabilities(capabilities) };
     }).pipe(Effect.ensuring(runtime.close.pipe(Effect.timeoutOption("5 seconds"), Effect.ignore)));
   }).pipe(Effect.scoped);
 
@@ -280,12 +317,14 @@ export const checkSigmaProviderStatus = Effect.fn("checkSigmaProviderStatus")(fu
     });
   }
 
-  const discovered = cliModels.length > 0 ? cliModels : acpExit.value.value;
+  const acpSnapshot = acpExit.value.value;
+  const discovered = cliModels.length > 0 ? cliModels : acpSnapshot.models;
   return buildServerProvider({
     presentation: SIGMA_PRESENTATION,
     enabled: true,
     checkedAt,
     models: modelsFromSettings(settings.customModels, discovered),
+    skills: acpSnapshot.skills,
     authConnections,
     probe: {
       installed: true,

@@ -1,4 +1,9 @@
-import { ProviderDriverKind, ProviderInstanceId, type SigmaSettings } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type SigmaSettings,
+  TurnId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -30,6 +35,24 @@ const decodeSigmaFailureMeta = Schema.decodeUnknownOption(SigmaFailureMeta);
 
 function sigmaModeId(interactionMode: "default" | "plan" | undefined): string {
   return interactionMode === "plan" ? "analyze" : "change";
+}
+
+function sigmaThreadTurns(
+  value: unknown,
+): ReadonlyArray<{ id: TurnId; items: Array<unknown> }> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rawTurns = (value as Record<string, unknown>).turns;
+  if (!Array.isArray(rawTurns)) return undefined;
+  const turns: Array<{ id: TurnId; items: Array<unknown> }> = [];
+  for (const candidate of rawTurns) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
+    const turn = candidate as Record<string, unknown>;
+    if (typeof turn.id !== "string" || !turn.id.trim() || !Array.isArray(turn.items)) {
+      return undefined;
+    }
+    turns.push({ id: TurnId.make(turn.id), items: turn.items });
+  }
+  return turns;
 }
 
 export function sigmaPromptFailure(
@@ -91,7 +114,10 @@ const SIGMA_ACP_PROFILE: AcpAdapterProfile = {
     currentModelId: currentSigmaModelIdFromSessionSetup,
     applySelection: applySigmaAcpModelSelection,
   },
-  enableXAiExtensions: false,
+  // Sigma uses this ACP extension as the structured request_user_input bridge.
+  // It is the same request/response lifecycle already used by the generic ACP
+  // adapter, so answers resume the waiting Sigma runtime turn in place.
+  enableXAiExtensions: true,
   requiresExplicitPermission: sigmaPermissionRequiresExplicitDecision,
   applyMode: ({ runtime, sessionId, interactionMode }) =>
     runtime
@@ -101,6 +127,19 @@ const SIGMA_ACP_PROFILE: AcpAdapterProfile = {
       } satisfies EffectAcpSchema.SetSessionModeRequest)
       .pipe(Effect.asVoid),
   sendPrompt: sigmaPrompt,
+  rollbackThread: ({ runtime, sessionId, numTurns }) =>
+    runtime.request("_sigma/rollback", { sessionId, numTurns }).pipe(Effect.asVoid),
+  readThread: ({ runtime, sessionId }) =>
+    runtime.request("_sigma/thread/read", { sessionId }).pipe(
+      Effect.flatMap((value) => {
+        const turns = sigmaThreadTurns(value);
+        return turns
+          ? Effect.succeed(turns)
+          : EffectAcpErrors.AcpRequestError.internalError(
+              "Sigma returned an invalid authoritative thread snapshot.",
+            );
+      }),
+    ),
   closeSession: ({ runtime }) =>
     runtime.close.pipe(Effect.timeoutOption("5 seconds"), Effect.asVoid),
 };

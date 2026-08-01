@@ -1,11 +1,12 @@
 # Keeping Sigma Code clients and servers in sync
 
 The web or desktop client and the server should use the same Sigma Code version.
-Version mismatch warnings remain available, but downstream updates fail closed
-until Sigma-owned release infrastructure exists.
+Version mismatch warnings remain available, and every update path fails closed
+unless Sigma-owned release metadata is present.
 
-- Desktop automatic updates are disabled unless the packaged application
-  contains Sigma-owned update metadata.
+- Official Windows installers read desktop updates only from
+  `hututuQQQ/sigma` Releases. Source and locally built artifacts remain disabled
+  unless `SIGMACODE_DESKTOP_UPDATE_REPOSITORY` is set at build time.
 - Server self-update is disabled unless
   `SIGMACODE_SERVER_NPM_PACKAGE` names a Sigma-owned package.
 - No update path falls back to the T3 Code GitHub repository, npm package, or

@@ -50,8 +50,10 @@ import {
   makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
   makeAcpPlanUpdatedEvent,
+  makeAcpSigmaRuntimeEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
+  makeAcpTokenUsageEvent,
   makeAcpToolCallEvent,
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
@@ -146,6 +148,18 @@ export interface AcpAdapterProfile {
     readonly prompt: ReadonlyArray<EffectAcpSchema.ContentBlock>;
     readonly steering: boolean;
   }) => Effect.Effect<EffectAcpSchema.PromptResponse, EffectAcpErrors.AcpError>;
+  readonly rollbackThread?: (input: {
+    readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
+    readonly sessionId: string;
+    readonly numTurns: number;
+  }) => Effect.Effect<void, EffectAcpErrors.AcpError>;
+  readonly readThread?: (input: {
+    readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
+    readonly sessionId: string;
+  }) => Effect.Effect<
+    ReadonlyArray<{ id: TurnId; items: Array<unknown> }>,
+    EffectAcpErrors.AcpError
+  >;
   readonly closeSession?: (input: {
     readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
     readonly sessionId: string;
@@ -882,6 +896,16 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             mapError: (cause) =>
               mapAcpToAdapterError(provider, input.threadId, "session/set_model", cause),
           });
+          const restoredTurns =
+            resumeSessionId && profile?.readThread
+              ? yield* profile
+                  .readThread({ runtime: acp, sessionId: started.sessionId })
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      mapAcpToAdapterError(provider, input.threadId, "_sigma/thread/read", cause),
+                    ),
+                  )
+              : [];
 
           const now = yield* nowIso;
           const session: ProviderSession = {
@@ -909,7 +933,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
             notificationFiber: undefined,
             pendingApprovals,
             pendingUserInputs,
-            turns: [],
+            turns: [...restoredTurns],
             lastPlanFingerprint: undefined,
             activeTurnId: undefined,
             interruptedTurnIds: new Set(),
@@ -928,12 +952,41 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
                 if (
                   event._tag === "PlanUpdated" ||
                   event._tag === "ToolCallUpdated" ||
+                  event._tag === "UsageUpdated" ||
+                  event._tag === "SigmaRuntimeEvent" ||
                   event._tag === "ContentDelta"
                 ) {
                   yield* logNative(ctx.threadId, "session/update", event.rawPayload);
                 }
 
                 if (event._tag === "ModeChanged") {
+                  return;
+                }
+
+                if (event._tag === "UsageUpdated") {
+                  yield* offerRuntimeEvent(
+                    makeAcpTokenUsageEvent({
+                      stamp: yield* makeEventStamp(),
+                      provider,
+                      threadId: ctx.threadId,
+                      turnId: resolveNotificationTurnId(ctx),
+                      usage: event.usage,
+                      rawPayload: event.rawPayload,
+                    }),
+                  );
+                  return;
+                }
+
+                if (event._tag === "SigmaRuntimeEvent") {
+                  const mapped = makeAcpSigmaRuntimeEvent({
+                    stamp: yield* makeEventStamp(),
+                    provider,
+                    threadId: ctx.threadId,
+                    turnId: resolveNotificationTurnId(ctx),
+                    event: event.event,
+                    rawPayload: event.rawPayload,
+                  });
+                  if (mapped) yield* offerRuntimeEvent(mapped);
                   return;
                 }
 
@@ -1544,25 +1597,76 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
     const readThread: GrokAdapterShape["readThread"] = (threadId) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
+        if (profile?.readThread) {
+          ctx.turns = [
+            ...(yield* profile
+              .readThread({
+                runtime: ctx.acp,
+                sessionId: ctx.acpSessionId,
+              })
+              .pipe(
+                Effect.mapError((cause) =>
+                  mapAcpToAdapterError(provider, threadId, "_sigma/thread/read", cause),
+                ),
+              )),
+          ];
+        }
         return { threadId, turns: ctx.turns };
       });
 
     const rollbackThread: GrokAdapterShape["rollbackThread"] = (threadId, numTurns) =>
-      Effect.gen(function* () {
-        yield* requireSession(threadId);
-        if (!Number.isInteger(numTurns) || numTurns < 1) {
-          return yield* new ProviderAdapterValidationError({
-            provider: provider,
-            operation: "rollbackThread",
-            issue: "numTurns must be an integer >= 1.",
-          });
-        }
-        return yield* new ProviderAdapterRequestError({
-          provider: provider,
-          method: "thread/rollback",
-          detail: `${providerLabel} ACP sessions do not support provider-side rollback yet.`,
-        });
-      });
+      withThreadLock(
+        threadId,
+        Effect.gen(function* () {
+          const ctx = yield* requireSession(threadId);
+          if (!Number.isInteger(numTurns) || numTurns < 1) {
+            return yield* new ProviderAdapterValidationError({
+              provider: provider,
+              operation: "rollbackThread",
+              issue: "numTurns must be an integer >= 1.",
+            });
+          }
+          if (ctx.promptsInFlight > 0 || ctx.activeTurnId !== undefined) {
+            return yield* new ProviderAdapterRequestError({
+              provider: provider,
+              method: "thread/rollback",
+              detail: `Cannot roll back ${providerLabel} while a turn is active.`,
+            });
+          }
+          const profileRollback = profile?.rollbackThread;
+          if (!profileRollback) {
+            return yield* new ProviderAdapterRequestError({
+              provider: provider,
+              method: "thread/rollback",
+              detail: `${providerLabel} ACP sessions do not support provider-side rollback yet.`,
+            });
+          }
+          yield* profileRollback({
+            runtime: ctx.acp,
+            sessionId: ctx.acpSessionId,
+            numTurns,
+          }).pipe(
+            Effect.mapError((cause) =>
+              mapAcpToAdapterError(provider, threadId, "_sigma/rollback", cause),
+            ),
+          );
+          ctx.turns = profile.readThread
+            ? [
+                ...(yield* profile
+                  .readThread({
+                    runtime: ctx.acp,
+                    sessionId: ctx.acpSessionId,
+                  })
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      mapAcpToAdapterError(provider, threadId, "_sigma/thread/read", cause),
+                    ),
+                  )),
+              ]
+            : ctx.turns.slice(0, Math.max(0, ctx.turns.length - numTurns));
+          return { threadId, turns: ctx.turns };
+        }),
+      );
 
     const stopSession: GrokAdapterShape["stopSession"] = (threadId) =>
       withThreadLock(

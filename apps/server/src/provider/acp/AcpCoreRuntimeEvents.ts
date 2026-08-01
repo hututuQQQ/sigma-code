@@ -6,13 +6,20 @@ import {
   type ProviderApprovalDecision,
   type ProviderDriverKind,
   type ProviderRuntimeEvent,
+  RuntimeTaskId,
   type RuntimeRequestId,
   type ThreadId,
   type ToolLifecycleItemType,
   type TurnId,
 } from "@t3tools/contracts";
 
-import type { AcpPermissionRequest, AcpPlanUpdate, AcpToolCallState } from "./AcpRuntimeModel.ts";
+import type {
+  AcpPermissionRequest,
+  AcpPlanUpdate,
+  AcpSigmaRuntimeEvent,
+  AcpToolCallState,
+} from "./AcpRuntimeModel.ts";
+import type { AcpUsageUpdate } from "./AcpRuntimeModel.ts";
 
 type AcpAdapterRawSource = Extract<
   RuntimeEventRawSource,
@@ -240,4 +247,162 @@ export function makeAcpContentDeltaEvent(input: {
       payload: input.rawPayload,
     },
   };
+}
+
+export function makeAcpTokenUsageEvent(input: {
+  readonly stamp: AcpEventStamp;
+  readonly provider: ProviderDriverKind;
+  readonly threadId: ThreadId;
+  readonly turnId: TurnId | undefined;
+  readonly usage: AcpUsageUpdate;
+  readonly rawPayload: unknown;
+}): ProviderRuntimeEvent {
+  return {
+    type: "thread.token-usage.updated",
+    ...input.stamp,
+    provider: input.provider,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    payload: { usage: input.usage },
+    raw: {
+      source: "acp.jsonrpc",
+      method: "session/update",
+      payload: input.rawPayload,
+    },
+  };
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function text(value: unknown): string | undefined {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || undefined;
+}
+
+function nestedText(value: unknown, key: string): string | undefined {
+  return text(record(value)[key]);
+}
+
+export function makeAcpSigmaRuntimeEvent(input: {
+  readonly stamp: AcpEventStamp;
+  readonly provider: ProviderDriverKind;
+  readonly threadId: ThreadId;
+  readonly turnId: TurnId | undefined;
+  readonly event: AcpSigmaRuntimeEvent;
+  readonly rawPayload: unknown;
+}): ProviderRuntimeEvent | undefined {
+  const raw = {
+    source: "acp.sigma.extension" as const,
+    method: "session/update",
+    payload: input.rawPayload,
+  };
+  const base = {
+    ...input.stamp,
+    provider: input.provider,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    raw,
+  };
+  const payload = input.event.payload;
+  if (input.event.eventType.startsWith("child.")) {
+    const childId = text(payload.childId);
+    if (!childId) return undefined;
+    const detail = record(payload.payload);
+    const taskId = RuntimeTaskId.make(childId);
+    if (input.event.eventType === "child.spawned") {
+      return {
+        type: "task.started",
+        ...base,
+        payload: {
+          taskId,
+          ...(text(detail.instruction) ? { description: text(detail.instruction) } : {}),
+          ...(text(detail.intent) ? { taskType: text(detail.intent) } : {}),
+        },
+      };
+    }
+    if (input.event.eventType === "child.message") {
+      const description =
+        text(detail.message) ?? text(detail.summary) ?? text(detail.kind) ?? "Agent progress";
+      return {
+        type: "task.progress",
+        ...base,
+        payload: {
+          taskId,
+          description,
+          ...(text(detail.summary) ? { summary: text(detail.summary) } : {}),
+          ...(text(detail.lastToolName) ? { lastToolName: text(detail.lastToolName) } : {}),
+          ...(detail.usage !== undefined ? { usage: detail.usage } : {}),
+        },
+      };
+    }
+    const status =
+      detail.status === "completed"
+        ? ("completed" as const)
+        : detail.status === "cancelled"
+          ? ("stopped" as const)
+          : ("failed" as const);
+    const summary =
+      text(detail.error) ??
+      nestedText(detail.outcome, "message") ??
+      nestedText(detail.report, "summary");
+    return {
+      type: "task.completed",
+      ...base,
+      payload: {
+        taskId,
+        status,
+        ...(summary ? { summary } : {}),
+        ...(detail.report !== undefined ? { usage: record(detail.report).budgetConsumed } : {}),
+      },
+    };
+  }
+  if (input.event.eventType.startsWith("hook.")) {
+    const hookId = text(payload.hookId);
+    const hookEvent = text(payload.event);
+    if (!hookId || !hookEvent) return undefined;
+    if (input.event.eventType === "hook.started") {
+      return {
+        type: "hook.started",
+        ...base,
+        payload: {
+          hookId,
+          hookName: text(payload.kind) ?? hookId,
+          hookEvent,
+        },
+      };
+    }
+    const outcome = record(payload.outcome);
+    const status = text(outcome.status);
+    const reason = text(outcome.reason);
+    const durationMs = typeof payload.durationMs === "number" ? payload.durationMs : undefined;
+    const output =
+      reason ??
+      (status
+        ? `${status}${durationMs === undefined ? "" : ` (${Math.round(durationMs)}ms)`}`
+        : undefined);
+    return {
+      type: "hook.completed",
+      ...base,
+      payload: {
+        hookId,
+        outcome:
+          input.event.eventType === "hook.failed" || status === "failed" || status === "denied"
+            ? "error"
+            : "success",
+        ...(output ? { output } : {}),
+      },
+    };
+  }
+  if (input.event.eventType === "mcp.status.updated") {
+    return {
+      type: "mcp.status.updated",
+      ...base,
+      payload: { status: payload.status ?? payload },
+    };
+  }
+  return undefined;
 }

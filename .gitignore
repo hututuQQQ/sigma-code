@@ -13,6 +13,7 @@ packages/*/dist
 build/
 dist/
 .logs/
+.artifacts/
 release/
 release-mock/
 .t3

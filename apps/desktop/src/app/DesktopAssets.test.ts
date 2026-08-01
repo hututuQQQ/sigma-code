@@ -3,29 +3,30 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 
 import * as DesktopAssets from "./DesktopAssets.ts";
 import * as DesktopConfig from "./DesktopConfig.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
-const environmentLayer = DesktopEnvironment.layer({
-  dirname: "/repo/apps/desktop/dist-electron",
-  homeDirectory: "/Users/alice",
-  platform: "darwin",
-  processArch: "arm64",
-  appVersion: "1.2.3",
-  appPath: "/Applications/Sigma Code.app/Contents/Resources/app.asar",
-  isPackaged: true,
-  resourcesPath: "/Applications/Sigma Code.app/Contents/Resources",
-  runningUnderArm64Translation: false,
-}).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({}))));
-
 describe("DesktopAssets", () => {
   it.effect("preserves the failed asset candidate and filesystem cause", () =>
     Effect.gen(function* () {
+      const path = yield* Path.Path;
       const fileName = "custom.bin";
-      const candidatePath = "/repo/apps/desktop/resources/custom.bin";
+      const candidatePath = path.resolve("repo", "apps", "desktop", "resources", fileName);
+      const environmentLayer = DesktopEnvironment.layer({
+        dirname: path.resolve("repo", "apps", "desktop", "dist-electron"),
+        homeDirectory: "/Users/alice",
+        platform: "darwin",
+        processArch: "arm64",
+        appVersion: "1.2.3",
+        appPath: "/Applications/Sigma Code.app/Contents/Resources/app.asar",
+        isPackaged: true,
+        resourcesPath: "/Applications/Sigma Code.app/Contents/Resources",
+        runningUnderArm64Translation: false,
+      }).pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({}))));
       const cause = PlatformError.systemError({
         _tag: "PermissionDenied",
         module: "FileSystem",
@@ -52,6 +53,6 @@ describe("DesktopAssets", () => {
         `Failed to probe desktop asset "${fileName}" at ${candidatePath}.`,
       );
       assert.notInclude(error.message, "private filesystem diagnostic");
-    }),
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

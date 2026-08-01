@@ -59,6 +59,16 @@ let currentFast = false;
 let promptCount = 0;
 let overlappingFirstPromptId: string | undefined;
 const cancelledSessions = new Set<string>();
+const threadTurns = new Map<string, Array<{ id: string; items: Array<unknown> }>>();
+
+function recordPromptTurn(session: string, request: AcpSchema.PromptRequest): void {
+  const items = request.prompt.map((block) =>
+    block.type === "text" ? { role: "user", text: block.text } : { role: "user", content: block },
+  );
+  const turns = threadTurns.get(session) ?? [];
+  turns.push({ id: `mock-turn:${promptCount}`, items });
+  threadTurns.set(session, turns);
+}
 
 function promptIdFromRequestMeta(
   request: Pick<AcpSchema.PromptRequest, "_meta">,
@@ -461,6 +471,7 @@ const program = Effect.gen(function* () {
     Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       promptCount += 1;
+      recordPromptTurn(requestedSessionId, request);
 
       if (Number.isFinite(promptDelayMs) && promptDelayMs > 0) {
         yield* Effect.sleep(`${promptDelayMs} millis`);
@@ -932,8 +943,50 @@ const program = Effect.gen(function* () {
       });
     }
 
+    if (method === "_sigma/capabilities") {
+      return Effect.succeed({ skills: [], slashCommands: [] });
+    }
+
+    if (method === "_sigma/thread/read") {
+      const requestedSessionId =
+        typeof params === "object" &&
+        params !== null &&
+        "sessionId" in params &&
+        typeof params.sessionId === "string"
+          ? params.sessionId
+          : sessionId;
+      return Effect.succeed({
+        turns: (threadTurns.get(requestedSessionId) ?? []).map((turn) => ({
+          ...turn,
+          items: [...turn.items],
+        })),
+      });
+    }
+
     if (method === "_sigma/steer") {
       return Effect.succeed({});
+    }
+
+    if (method === "_sigma/rollback") {
+      const requestedSessionId =
+        typeof params === "object" &&
+        params !== null &&
+        "sessionId" in params &&
+        typeof params.sessionId === "string"
+          ? params.sessionId
+          : sessionId;
+      const requestedTurns =
+        typeof params === "object" &&
+        params !== null &&
+        "numTurns" in params &&
+        typeof params.numTurns === "number"
+          ? Math.max(0, Math.floor(params.numTurns))
+          : 1;
+      const turns = threadTurns.get(requestedSessionId) ?? [];
+      const removedTurns = Math.min(requestedTurns, turns.length);
+      turns.splice(turns.length - removedTurns, removedTurns);
+      threadTurns.set(requestedSessionId, turns);
+      return Effect.succeed({ removedTurns });
     }
 
     if (method === "cursor/list_available_models") {

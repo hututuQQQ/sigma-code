@@ -34,6 +34,7 @@ const XAiAskUserQuestionOption = Schema.Struct({
 
 const XAiAskUserQuestion = Schema.Struct({
   id: Schema.optional(Schema.String),
+  header: Schema.optional(Schema.String),
   question: Schema.String,
   options: Schema.Array(XAiAskUserQuestionOption),
   multiSelect: Schema.optional(Schema.NullOr(Schema.Boolean)),
@@ -75,7 +76,7 @@ export function extractXAiAskUserQuestions(
 ): ReadonlyArray<UserInputQuestion> {
   return unwrapAskUserQuestionParams(params).questions.map((question) => ({
     id: question.id ?? question.question,
-    header: "Question",
+    header: trimmed(question.header) ?? "Question",
     question: question.question,
     multiSelect: question.multiSelect === true,
     options:
