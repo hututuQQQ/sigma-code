@@ -157,14 +157,19 @@ const probeSigmaAcp = (settings: SigmaSettings, environment: NodeJS.ProcessEnv) 
     // Packaged desktop processes run from the user's home directory, while
     // Sigma Runtime keeps its state below ~/.sigma. Sigma deliberately rejects
     // a workspace that contains its state root, so use an isolated temporary
-    // workspace for the provider-level session probe.
+    // workspace for the provider-level session probe. The probe also creates
+    // an ACP session, so keep its state in a second scoped directory instead
+    // of accumulating empty probe sessions in the user's real Sigma state.
     const probeCwd = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "sigma-code-provider-probe-",
+    });
+    const probeStateHome = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "sigma-code-provider-state-",
     });
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const runtime = yield* makeSigmaAcpRuntime({
       grokSettings: settings,
-      environment,
+      environment: { ...environment, SIGMA_STATE_HOME: probeStateHome },
       childProcessSpawner,
       cwd: probeCwd,
       clientInfo: { name: "sigma-code-provider-probe", version: "0.0.0" },
