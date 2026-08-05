@@ -3,7 +3,7 @@
 import * as NodeModule from "node:module";
 
 import { fromYaml } from "@t3tools/shared/schemaYaml";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -37,7 +37,16 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
 const DESKTOP_APP_ID = "io.github.hututuqqq.sigmacode";
+export const MACOS_MINIMUM_SYSTEM_VERSION = "13.5";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
+export const MAC_SIGNING_CREDENTIAL_NAMES = [
+  "CSC_LINK",
+  "CSC_KEY_PASSWORD",
+  "APPLE_API_KEY",
+  "APPLE_API_KEY_ID",
+  "APPLE_API_ISSUER",
+  "APPLE_TEAM_ID",
+] as const;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
@@ -289,6 +298,18 @@ export class UnsupportedDesktopBuildPlatformError extends Schema.TaggedErrorClas
 ) {
   override get message(): string {
     return `Unsupported platform '${this.platform}'.`;
+  }
+}
+
+export class NativeMacArm64BuildRequiredError extends Schema.TaggedErrorClass<NativeMacArm64BuildRequiredError>()(
+  "NativeMacArm64BuildRequiredError",
+  {
+    hostPlatform: Schema.String,
+    hostArch: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `macOS ARM64 desktop artifacts require a native darwin/arm64 host, got ${this.hostPlatform}/${this.hostArch}.`;
   }
 }
 
@@ -656,7 +677,7 @@ export class InvalidAppleTeamIdError extends Schema.TaggedErrorClass<InvalidAppl
   },
 ) {
   override get message(): string {
-    return `SIGMACODE_APPLE_TEAM_ID '${this.teamId}' must be a 10-character Apple Developer Team ID.`;
+    return `APPLE_TEAM_ID '${this.teamId}' must be a 10-character Apple Developer Team ID.`;
   }
 }
 
@@ -676,6 +697,45 @@ export class MissingMacPasskeyDomainConfigurationError extends Schema.TaggedErro
   override get message(): string {
     return "SIGMACODE_CLERK_PUBLISHABLE_KEY or SIGMACODE_CLERK_PASSKEY_RP_DOMAINS is required for signed macOS passkey builds.";
   }
+}
+
+export class IncompleteMacSigningCredentialsError extends Schema.TaggedErrorClass<IncompleteMacSigningCredentialsError>()(
+  "IncompleteMacSigningCredentialsError",
+  {
+    configuredNames: Schema.Array(Schema.String),
+    missingNames: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `macOS signing credentials are partially configured; missing: ${this.missingNames.join(", ")}.`;
+  }
+}
+
+export type MacSigningCredentialState =
+  | { readonly mode: "unsigned" }
+  | { readonly mode: "signed"; readonly teamId: string };
+
+export function resolveMacSigningCredentialState(
+  env: Readonly<Record<string, string | undefined>>,
+): MacSigningCredentialState {
+  const configuredNames = MAC_SIGNING_CREDENTIAL_NAMES.filter(
+    (name) => (env[name] ?? "").trim().length > 0,
+  );
+  if (configuredNames.length === 0) return { mode: "unsigned" };
+  const missingNames = MAC_SIGNING_CREDENTIAL_NAMES.filter(
+    (name) => !configuredNames.includes(name),
+  );
+  if (missingNames.length > 0) {
+    throw new IncompleteMacSigningCredentialsError({
+      configuredNames: [...configuredNames],
+      missingNames: [...missingNames],
+    });
+  }
+  const teamId = env.APPLE_TEAM_ID!.trim().toUpperCase();
+  if (!APPLE_TEAM_ID_PATTERN.test(teamId)) {
+    throw new InvalidAppleTeamIdError({ teamId });
+  }
+  return { mode: "signed", teamId };
 }
 
 export class InvalidMacPasskeyPublishableKeyError extends Schema.TaggedErrorClass<InvalidMacPasskeyPublishableKeyError>()(
@@ -753,7 +813,7 @@ function normalizePasskeyRpDomain(value: string): string {
 export function resolveMacPasskeySigningConfiguration(
   env: Readonly<Record<string, string | undefined>>,
 ): MacPasskeySigningConfiguration {
-  const teamId = env.SIGMACODE_APPLE_TEAM_ID?.trim().toUpperCase() ?? "";
+  const teamId = (env.APPLE_TEAM_ID ?? env.SIGMACODE_APPLE_TEAM_ID)?.trim().toUpperCase() ?? "";
   if (!APPLE_TEAM_ID_PATTERN.test(teamId)) {
     throw new InvalidAppleTeamIdError({ teamId });
   }
@@ -822,6 +882,26 @@ export function renderMacPasskeyEntitlements(
     <array>
 ${associatedDomains}
     </array>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>
+`;
+}
+
+export function renderMacSigningEntitlements(
+  _teamId: string,
+  passkeys?: MacPasskeySigningConfiguration,
+): string {
+  if (passkeys) return renderMacPasskeyEntitlements(passkeys);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
@@ -1422,12 +1502,13 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   mockUpdates: boolean,
   mockUpdateServerPort: number | undefined,
   sigmaRuntimeExactCopyPaths: ReadonlyArray<string>,
-  macPasskeySigning:
+  macSigning:
     | {
         readonly entitlementsPath: string;
-        readonly provisioningProfilePath: string;
+        readonly provisioningProfilePath?: string;
       }
     | undefined,
+  sigmaRuntimeSigningBinaryPaths: ReadonlyArray<string> = [],
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
@@ -1486,15 +1567,27 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac") {
+    const runtimeBinaries = sigmaRuntimeSigningBinaryPaths.map(
+      (relativePath) => `Contents/Resources/sigma-runtime/${relativePath}`,
+    );
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       executableName: "sigma-code",
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
-      ...(macPasskeySigning
+      minimumSystemVersion: MACOS_MINIMUM_SYSTEM_VERSION,
+      hardenedRuntime: signed,
+      notarize: signed,
+      gatekeeperAssess: false,
+      ...(signed ? {} : { identity: null }),
+      ...(signed ? { binaries: runtimeBinaries } : {}),
+      ...(macSigning
         ? {
-            entitlements: macPasskeySigning.entitlementsPath,
-            provisioningProfile: macPasskeySigning.provisioningProfilePath,
+            entitlements: macSigning.entitlementsPath,
+            entitlementsInherit: macSigning.entitlementsPath,
+            ...(macSigning.provisioningProfilePath
+              ? { provisioningProfile: macSigning.provisioningProfilePath }
+              : {}),
           }
         : {}),
     };
@@ -1668,14 +1761,24 @@ export const stageBundledSigmaRuntime = Effect.fn("stageBundledSigmaRuntime")(fu
     path.join(input.runtimePath, "integrity-manifest.json"),
   );
   const decodedIntegrityManifest = yield* decodeBundledRuntimeIntegrityManifest(integrityManifest);
-  const exactCopyPaths = decodedIntegrityManifest.entries
-    .map((entry) => entry.path.replaceAll("\\", "/"))
+  const manifestPaths = decodedIntegrityManifest.entries.map((entry) =>
+    entry.path.replaceAll("\\", "/"),
+  );
+  const exactCopyPaths = manifestPaths
     .filter((relativePath) => path.basename(relativePath) === ".gitkeep")
+    .sort();
+  const signingBinaryPaths = manifestPaths
+    .filter(
+      (relativePath) =>
+        relativePath === "bin/node" ||
+        relativePath === "bin/sigma-exec" ||
+        relativePath.endsWith(".node"),
+    )
     .sort();
 
   yield* fs.copy(input.runtimePath, path.join(input.stageAppDir, "sigma-runtime"));
   yield* Effect.log(`[desktop-artifact] Staged bundled Sigma Runtime from ${input.runtimePath}.`);
-  return exactCopyPaths;
+  return { exactCopyPaths, signingBinaryPaths };
 });
 
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
@@ -1685,11 +1788,27 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const hostPlatform = yield* HostProcessPlatform;
+  const hostArchitecture = yield* HostProcessArchitecture;
   const workspaceConfig = yield* readWorkspaceConfig();
   const workspaceCatalog = workspaceConfig.catalog ?? {};
   const workspaceOverrides = workspaceConfig.overrides ?? {};
   const workspacePatchedDependencies = workspaceConfig.patchedDependencies ?? {};
   const workspaceAllowBuilds = workspaceConfig.allowBuilds ?? {};
+  if (
+    options.platform === "mac" &&
+    options.arch === "arm64" &&
+    (hostPlatform !== "darwin" || hostArchitecture !== "arm64")
+  ) {
+    return yield* new NativeMacArm64BuildRequiredError({
+      hostPlatform,
+      hostArch: hostArchitecture,
+    });
+  }
+  const repoEnv = loadRepoEnv({ repoRoot });
+  const macSigningCredentialState =
+    options.platform === "mac" ? resolveMacSigningCredentialState(repoEnv) : undefined;
+  const signed =
+    options.platform === "mac" ? macSigningCredentialState?.mode === "signed" : options.signed;
 
   const platformConfig = PLATFORM_CONFIG[options.platform];
   if (!platformConfig) {
@@ -1810,7 +1929,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       path.join(legalDir, legalResource.targetFileName),
     );
   }
-  const sigmaRuntimeExactCopyPaths = yield* stageBundledSigmaRuntime({
+  const sigmaRuntimePaths = yield* stageBundledSigmaRuntime({
     stageAppDir,
     platform: options.platform,
     runtimePath: options.sigmaRuntime,
@@ -1830,10 +1949,15 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
+  const hasMacPasskeyConfiguration = [
+    "SIGMACODE_MACOS_PROVISIONING_PROFILE",
+    "SIGMACODE_CLERK_PASSKEY_RP_DOMAINS",
+    "SIGMACODE_CLERK_PUBLISHABLE_KEY",
+  ].some((name) => (repoEnv[name] ?? "").trim().length > 0);
   const configuredMacPasskeySigning =
-    options.platform === "mac" && options.signed
+    options.platform === "mac" && signed && hasMacPasskeyConfiguration
       ? yield* Effect.try({
-          try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
+          try: () => resolveMacPasskeySigningConfiguration(repoEnv),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
         })
       : undefined;
@@ -1846,16 +1970,19 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         ),
       }
     : undefined;
-  const macEntitlementsPath = macPasskeySigning
-    ? path.join(stageAppDir, "entitlements.mac.plist")
-    : undefined;
-  if (macPasskeySigning && macEntitlementsPath) {
+  const macEntitlementsPath = signed ? path.join(stageAppDir, "entitlements.mac.plist") : undefined;
+  if (macPasskeySigning) {
     if (!(yield* fs.exists(macPasskeySigning.provisioningProfilePath))) {
       return yield* new MacProvisioningProfileNotFoundError({
         provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
       });
     }
-    yield* fs.writeFileString(macEntitlementsPath, renderMacPasskeyEntitlements(macPasskeySigning));
+  }
+  if (macEntitlementsPath && macSigningCredentialState?.mode === "signed") {
+    yield* fs.writeFileString(
+      macEntitlementsPath,
+      renderMacSigningEntitlements(macSigningCredentialState.teamId, macPasskeySigning),
+    );
   }
 
   const stageDependencies = {
@@ -1896,16 +2023,19 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       options.platform,
       options.target,
       appVersion,
-      options.signed,
+      signed,
       options.mockUpdates,
       options.mockUpdateServerPort,
-      sigmaRuntimeExactCopyPaths,
-      macPasskeySigning && macEntitlementsPath
+      sigmaRuntimePaths.exactCopyPaths,
+      macEntitlementsPath
         ? {
             entitlementsPath: macEntitlementsPath,
-            provisioningProfilePath: macPasskeySigning.provisioningProfilePath,
+            ...(macPasskeySigning
+              ? { provisioningProfilePath: macPasskeySigning.provisioningProfilePath }
+              : {}),
           }
         : undefined,
+      sigmaRuntimePaths.signingBinaryPaths,
     ),
     dependencies: stageDependencies,
     devDependencies: {
@@ -1965,7 +2095,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       delete buildEnv[key];
     }
   }
-  if (!options.signed) {
+  if (!signed) {
     buildEnv.CSC_IDENTITY_AUTO_DISCOVERY = "false";
     delete buildEnv.CSC_LINK;
     delete buildEnv.CSC_KEY_PASSWORD;
@@ -2092,7 +2222,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   signed: Flag.boolean("signed").pipe(
     Flag.withDescription(
-      "Enable signing/notarization discovery; Windows uses Azure Trusted Signing (env: SIGMACODE_DESKTOP_SIGNED).",
+      "Enable Windows Azure Trusted Signing. macOS signing is enabled only by the complete Apple credential set (env: SIGMACODE_DESKTOP_SIGNED).",
     ),
     Flag.optional,
   ),
