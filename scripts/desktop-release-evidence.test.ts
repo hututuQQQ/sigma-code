@@ -10,12 +10,12 @@ it("writes checksum, runtime provenance, and unsigned preview status", async () 
   const root = await NodeFSP.mkdtemp(
     NodePath.join(NodeOS.tmpdir(), "sigma-desktop-evidence-test-"),
   );
-  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.7-arm64.dmg");
+  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.8-arm64.dmg");
   const runtimeProvenancePath = NodePath.join(root, "agent-cli-darwin-arm64.provenance.json");
   await NodeFSP.writeFile(artifactPath, "dmg fixture", "utf8");
   await NodeFSP.writeFile(
     runtimeProvenancePath,
-    '{"predicate":{"buildDefinition":{"externalParameters":{"version":"0.1.7","targetPlatform":"darwin","targetArch":"arm64"}}}}\n',
+    '{"predicate":{"buildDefinition":{"externalParameters":{"version":"0.1.8","targetPlatform":"darwin","targetArch":"arm64"}}}}\n',
     "utf8",
   );
 
@@ -24,7 +24,7 @@ it("writes checksum, runtime provenance, and unsigned preview status", async () 
     runtimeProvenancePath,
     platform: "darwin",
     arch: "arm64",
-    version: "0.1.7",
+    version: "0.1.8",
     signingMode: "unsigned",
     codesign: "not-signed",
     gatekeeper: "not-applicable",
@@ -42,12 +42,12 @@ it("rejects signed evidence unless every notarization gate passed", async () => 
   const root = await NodeFSP.mkdtemp(
     NodePath.join(NodeOS.tmpdir(), "sigma-desktop-evidence-signed-test-"),
   );
-  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.7-arm64.dmg");
+  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.8-arm64.dmg");
   const runtimeProvenancePath = NodePath.join(root, "runtime.json");
   await NodeFSP.writeFile(artifactPath, "dmg fixture", "utf8");
   await NodeFSP.writeFile(
     runtimeProvenancePath,
-    '{"predicate":{"buildDefinition":{"externalParameters":{"version":"0.1.7","targetPlatform":"darwin","targetArch":"arm64"}}}}\n',
+    '{"predicate":{"buildDefinition":{"externalParameters":{"version":"0.1.8","targetPlatform":"darwin","targetArch":"arm64"}}}}\n',
     "utf8",
   );
   let failure: unknown;
@@ -57,7 +57,7 @@ it("rejects signed evidence unless every notarization gate passed", async () => 
       runtimeProvenancePath,
       platform: "darwin",
       arch: "arm64",
-      version: "0.1.7",
+      version: "0.1.8",
       signingMode: "signed",
       codesign: "pass",
       gatekeeper: "pass",
