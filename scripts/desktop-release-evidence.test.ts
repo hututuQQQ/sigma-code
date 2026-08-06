@@ -6,7 +6,7 @@ import * as NodePath from "node:path";
 
 import { writeDesktopReleaseEvidence } from "./desktop-release-evidence.ts";
 
-function runtimeProvenance(version = "0.1.9", platform = "darwin", arch = "arm64"): string {
+function runtimeProvenance(version = "0.1.10", platform = "darwin", arch = "arm64"): string {
   const statement = {
     _type: "https://in-toto.io/Statement/v1",
     predicateType: "https://slsa.dev/provenance/v1",
@@ -28,7 +28,7 @@ it("writes checksum, runtime provenance, and unsigned preview status", async () 
   const root = await NodeFSP.mkdtemp(
     NodePath.join(NodeOS.tmpdir(), "sigma-desktop-evidence-test-"),
   );
-  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.9-arm64.dmg");
+  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.10-arm64.dmg");
   const runtimeProvenancePath = NodePath.join(root, "agent-cli-darwin-arm64.provenance.json");
   await NodeFSP.writeFile(artifactPath, "dmg fixture", "utf8");
   await NodeFSP.writeFile(runtimeProvenancePath, runtimeProvenance(), "utf8");
@@ -38,7 +38,7 @@ it("writes checksum, runtime provenance, and unsigned preview status", async () 
     runtimeProvenancePath,
     platform: "darwin",
     arch: "arm64",
-    version: "0.1.9",
+    version: "0.1.10",
     signingMode: "unsigned",
     codesign: "not-signed",
     gatekeeper: "not-applicable",
@@ -56,7 +56,7 @@ it("rejects signed evidence unless every notarization gate passed", async () => 
   const root = await NodeFSP.mkdtemp(
     NodePath.join(NodeOS.tmpdir(), "sigma-desktop-evidence-signed-test-"),
   );
-  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.9-arm64.dmg");
+  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.10-arm64.dmg");
   const runtimeProvenancePath = NodePath.join(root, "runtime.json");
   await NodeFSP.writeFile(artifactPath, "dmg fixture", "utf8");
   await NodeFSP.writeFile(runtimeProvenancePath, runtimeProvenance(), "utf8");
@@ -67,7 +67,7 @@ it("rejects signed evidence unless every notarization gate passed", async () => 
       runtimeProvenancePath,
       platform: "darwin",
       arch: "arm64",
-      version: "0.1.9",
+      version: "0.1.10",
       signingMode: "signed",
       codesign: "pass",
       gatekeeper: "pass",
@@ -84,12 +84,12 @@ it("rejects a raw provenance statement instead of treating it as a DSSE envelope
   const root = await NodeFSP.mkdtemp(
     NodePath.join(NodeOS.tmpdir(), "sigma-desktop-evidence-envelope-test-"),
   );
-  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.9-arm64.dmg");
+  const artifactPath = NodePath.join(root, "Sigma-Code-0.1.10-arm64.dmg");
   const runtimeProvenancePath = NodePath.join(root, "runtime.json");
   await NodeFSP.writeFile(artifactPath, "dmg fixture", "utf8");
   await NodeFSP.writeFile(
     runtimeProvenancePath,
-    '{"predicate":{"buildDefinition":{"externalParameters":{"version":"0.1.9","targetPlatform":"darwin","targetArch":"arm64"}}}}\n',
+    '{"predicate":{"buildDefinition":{"externalParameters":{"version":"0.1.10","targetPlatform":"darwin","targetArch":"arm64"}}}}\n',
     "utf8",
   );
   let failure: unknown;
@@ -99,7 +99,7 @@ it("rejects a raw provenance statement instead of treating it as a DSSE envelope
       runtimeProvenancePath,
       platform: "darwin",
       arch: "arm64",
-      version: "0.1.9",
+      version: "0.1.10",
       signingMode: "unsigned",
       codesign: "not-signed",
       gatekeeper: "not-applicable",
