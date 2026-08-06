@@ -17,6 +17,7 @@ import {
   createStagePatchedDependencies,
   createBuildConfig,
   DESKTOP_ASAR_UNPACK,
+  IncompleteMacSigningCredentialsError,
   InvalidMacPasskeyRpDomainError,
   InvalidMacPasskeyPublishableKeyError,
   InvalidMockUpdateServerPortError,
@@ -25,8 +26,10 @@ import {
   MacPasskeySigningConfigurationResolutionError,
   MissingMacPasskeyProvisioningProfileError,
   renderMacPasskeyEntitlements,
+  renderMacSigningEntitlements,
   resolveClerkPasskeyNativeArtifacts,
   resolveMacPasskeySigningConfiguration,
+  resolveMacSigningCredentialState,
   resolveDesktopRuntimeDependencies,
   resolveFffNativeDependencies,
   resolveBuildOptions,
@@ -405,6 +408,32 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.include(entitlements, "<key>com.apple.security.cs.allow-jit</key>");
   });
 
+  it("enables macOS signing only for the complete fixed credential interface", () => {
+    assert.deepStrictEqual(resolveMacSigningCredentialState({}), { mode: "unsigned" });
+    assert.deepStrictEqual(
+      resolveMacSigningCredentialState({
+        CSC_LINK: "certificate",
+        CSC_KEY_PASSWORD: "password",
+        APPLE_API_KEY: "private-key",
+        APPLE_API_KEY_ID: "KEY123",
+        APPLE_API_ISSUER: "issuer",
+        APPLE_TEAM_ID: "abc1234567",
+      }),
+      { mode: "signed", teamId: "ABC1234567" },
+    );
+    assert.throws(
+      () => resolveMacSigningCredentialState({ CSC_LINK: "certificate" }),
+      IncompleteMacSigningCredentialsError,
+    );
+  });
+
+  it("renders hardened-runtime JIT entitlements without requiring Clerk provisioning", () => {
+    const entitlements = renderMacSigningEntitlements("ABC1234567");
+    assert.include(entitlements, "com.apple.security.cs.allow-jit");
+    assert.notInclude(entitlements, "com.apple.application-identifier");
+    assert.notInclude(entitlements, "com.apple.developer.associated-domains");
+  });
+
   it("rejects incomplete macOS passkey signing configuration", () => {
     const captureError = (env: Readonly<Record<string, string | undefined>>) => {
       try {
@@ -495,17 +524,32 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         true,
         false,
         undefined,
-        ["node_modules/tr46/lib/.gitkeep"],
+        [
+          "bin/node",
+          "bin/sigma-exec",
+          "node_modules/native/addon.node",
+          "node_modules/tr46/lib/.gitkeep",
+        ],
         {
           entitlementsPath: "/tmp/entitlements.mac.plist",
           provisioningProfilePath: "/tmp/sigma-code.provisionprofile",
         },
+        ["bin/node", "bin/sigma-exec", "node_modules/native/addon.node"],
       );
 
       const mac = config.mac as Record<string, unknown>;
       assert.equal(config.appId, "io.github.hututuqqq.sigmacode");
       assert.equal(mac.entitlements, "/tmp/entitlements.mac.plist");
+      assert.equal(mac.entitlementsInherit, "/tmp/entitlements.mac.plist");
       assert.equal(mac.provisioningProfile, "/tmp/sigma-code.provisionprofile");
+      assert.equal(mac.minimumSystemVersion, "13.5");
+      assert.equal(mac.hardenedRuntime, true);
+      assert.equal(mac.notarize, true);
+      assert.deepStrictEqual(mac.binaries, [
+        "Contents/Resources/sigma-runtime/bin/node",
+        "Contents/Resources/sigma-runtime/bin/sigma-exec",
+        "Contents/Resources/sigma-runtime/node_modules/native/addon.node",
+      ]);
       assert.equal(mac.executableName, "sigma-code");
       assert.deepStrictEqual(config.protocols, [
         { name: "Sigma Code", schemes: ["sigmacode", "sigmacode-dev"] },
@@ -513,11 +557,37 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(config.extraResources, [
         { from: "legal", to: "legal" },
         { from: ".", to: ".", filter: ["sigma-runtime/**/*"] },
+        { from: "sigma-runtime/bin/node", to: "sigma-runtime/bin/node" },
+        { from: "sigma-runtime/bin/sigma-exec", to: "sigma-runtime/bin/sigma-exec" },
+        {
+          from: "sigma-runtime/node_modules/native/addon.node",
+          to: "sigma-runtime/node_modules/native/addon.node",
+        },
         {
           from: "sigma-runtime/node_modules/tr46/lib/.gitkeep",
           to: "sigma-runtime/node_modules/tr46/lib/.gitkeep",
         },
       ]);
+    }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it.effect("forces unsigned macOS previews to disable identity, hardening, and notarization", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "1.2.3",
+        false,
+        false,
+        undefined,
+        [],
+        undefined,
+      );
+      const mac = config.mac as Record<string, unknown>;
+      assert.strictEqual(mac.identity, null);
+      assert.equal(mac.hardenedRuntime, false);
+      assert.equal(mac.notarize, false);
+      assert.equal(mac.minimumSystemVersion, "13.5");
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
@@ -531,7 +601,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const runtimePath = path.join(tempDir, "runtime");
       const stageAppDir = path.join(tempDir, "app");
       const requiredFiles = [
-        "bin/sigma.cmd",
+        "bin/sigma",
+        "bin/node",
+        "bin/sigma-exec",
+        "node_modules/native/addon.node",
         "LICENSE",
         "integrity-manifest.json",
         "package-metadata.json",
@@ -556,12 +629,17 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         integrityManifest,
       );
 
-      const exactCopyPaths = yield* stageBundledSigmaRuntime({
+      const stagedPaths = yield* stageBundledSigmaRuntime({
         stageAppDir,
-        platform: "win",
+        platform: "mac",
         runtimePath,
       });
-      assert.deepStrictEqual(exactCopyPaths, ["node_modules/tr46/lib/.gitkeep"]);
+      assert.deepStrictEqual(stagedPaths.exactCopyPaths, ["node_modules/tr46/lib/.gitkeep"]);
+      assert.deepStrictEqual(stagedPaths.signingBinaryPaths, [
+        "bin/node",
+        "bin/sigma-exec",
+        "node_modules/native/addon.node",
+      ]);
 
       for (const relativePath of requiredFiles) {
         assert.isTrue(

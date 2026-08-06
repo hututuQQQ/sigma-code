@@ -145,6 +145,6 @@ peerDependencyRules:
     vite: "*"
 
 supportedArchitectures:
-  cpu: [current, x64]
+  cpu: [current, x64, arm64]
   libc: [current, glibc]
-  os: [current, linux]
+  os: [current, linux, darwin]
