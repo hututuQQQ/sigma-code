@@ -2,11 +2,14 @@
 // @effect-diagnostics nodeBuiltinImport:off
 
 import * as NodeCrypto from "node:crypto";
+import * as NodeBuffer from "node:buffer";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
 const APP_ID = "io.github.hututuqqq.sigmacode";
 const MACOS_MINIMUM_SYSTEM_VERSION = "13.5";
+const RUNTIME_PROVENANCE_PAYLOAD_TYPE = "application/vnd.in-toto+json";
+const MAX_RUNTIME_PROVENANCE_PAYLOAD_BYTES = 1024 * 1024;
 
 type Platform = "darwin" | "win32";
 type Arch = "arm64" | "x64";
@@ -63,6 +66,67 @@ function validateOptions(options: DesktopReleaseEvidenceOptions): void {
   }
 }
 
+function decodeRuntimeProvenanceStatement(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Runtime provenance must be a DSSE envelope object.");
+  }
+  const envelope = value as Record<string, unknown>;
+  const keys = Object.keys(envelope).sort();
+  if (JSON.stringify(keys) !== JSON.stringify(["payload", "payloadType", "signatures"])) {
+    throw new Error("Runtime provenance DSSE envelope has unexpected fields.");
+  }
+  if (envelope.payloadType !== RUNTIME_PROVENANCE_PAYLOAD_TYPE) {
+    throw new Error("Runtime provenance uses an unsupported DSSE payload type.");
+  }
+  if (!Array.isArray(envelope.signatures)) {
+    throw new Error("Runtime provenance DSSE signatures must be an array.");
+  }
+  if (
+    typeof envelope.payload !== "string" ||
+    envelope.payload.length === 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(envelope.payload) ||
+    envelope.payload.length > Math.ceil(MAX_RUNTIME_PROVENANCE_PAYLOAD_BYTES / 3) * 4
+  ) {
+    throw new Error("Runtime provenance DSSE payload is not bounded canonical base64.");
+  }
+  const payload = NodeBuffer.Buffer.from(envelope.payload, "base64");
+  if (
+    payload.length === 0 ||
+    payload.length > MAX_RUNTIME_PROVENANCE_PAYLOAD_BYTES ||
+    payload.toString("base64") !== envelope.payload
+  ) {
+    throw new Error("Runtime provenance DSSE payload is not bounded canonical base64.");
+  }
+  const payloadText = payload.toString("utf8");
+  if (!NodeBuffer.Buffer.from(payloadText, "utf8").equals(payload)) {
+    throw new Error("Runtime provenance DSSE payload is not valid UTF-8.");
+  }
+  let statement: unknown;
+  try {
+    statement = JSON.parse(payloadText);
+  } catch (error) {
+    throw new Error(
+      `Runtime provenance DSSE payload is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  if (!statement || typeof statement !== "object" || Array.isArray(statement)) {
+    throw new Error("Runtime provenance DSSE payload must contain an object statement.");
+  }
+  const typed = statement as Record<string, unknown>;
+  const predicate = typed.predicate as
+    | { readonly buildDefinition?: { readonly buildType?: unknown } }
+    | undefined;
+  if (
+    typed._type !== "https://in-toto.io/Statement/v1" ||
+    typed.predicateType !== "https://slsa.dev/provenance/v1" ||
+    predicate?.buildDefinition?.buildType !== "https://sigma-code.dev/build-types/portable-cli"
+  ) {
+    throw new Error("Runtime provenance DSSE payload is not a Sigma portable Runtime statement.");
+  }
+  return typed;
+}
+
 export async function writeDesktopReleaseEvidence(options: DesktopReleaseEvidenceOptions): Promise<{
   readonly checksumPath: string;
   readonly provenancePath: string;
@@ -70,7 +134,7 @@ export async function writeDesktopReleaseEvidence(options: DesktopReleaseEvidenc
 }> {
   validateOptions(options);
   const runtimeProvenanceRaw = await NodeFSP.readFile(options.runtimeProvenancePath, "utf8");
-  const runtimeProvenance = JSON.parse(runtimeProvenanceRaw) as Record<string, unknown>;
+  const runtimeProvenance = decodeRuntimeProvenanceStatement(JSON.parse(runtimeProvenanceRaw));
   const runtimeParameters = (
     runtimeProvenance.predicate as
       | { readonly buildDefinition?: { readonly externalParameters?: unknown } }
